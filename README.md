@@ -54,7 +54,7 @@ v1 is being built in the order described in §10 of the LLD. Each step is gated 
 2. [x] Synthetic 50-chunk benchmark corpus
 3. [x] Calibration (Stage 0.5)
 4. [x] Embedding-channel dedup (Stage 1, half)
-5. [ ] Clustering (Stage 2)
+5. [x] Clustering (Stage 2)
 6. [ ] NLI contradiction detection (Stage 4, one detector)
 7. [ ] Staleness scoring (Stage 5)
 8. [ ] JSON report (Stage 6, half)

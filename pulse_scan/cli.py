@@ -95,6 +95,12 @@ def scan(
     from pulse_scan.stages.stage1_dedup import DeduplicateStage
     dedup_stats = DeduplicateStage(conn=conn, data_dir=data_dir).run()
 
+    # Stage 2: Clustering (UMAP + HDBSCAN)
+    from pulse_scan.stages.stage2_cluster import ClusterStage
+    cluster_stats = ClusterStage(
+        conn=conn, data_dir=data_dir, clustering_config=cfg.clustering
+    ).run()
+
     typer.echo(
         f"Scan complete [{run_id[:8]}]\n"
         f"  new:       {stats['chunks_new']}\n"
@@ -108,7 +114,10 @@ def scan(
         f"  cluster density:       {thresholds['cluster_min_density']:.4f}\n"
         f"\nDeduplication (embedding channel):\n"
         f"  groups found:          {dedup_stats['groups_found']}\n"
-        f"  chunks in groups:      {dedup_stats['chunks_in_groups']}"
+        f"  chunks in groups:      {dedup_stats['chunks_in_groups']}\n"
+        f"\nClustering:\n"
+        f"  clusters found:        {cluster_stats['clusters_found']}\n"
+        f"  noise chunks:          {cluster_stats['noise_chunks']}"
     )
     conn.close()
 

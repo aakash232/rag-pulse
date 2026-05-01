@@ -30,6 +30,7 @@ class ScanConfig:
 class ClusteringConfig:
     min_cluster_size: str | int = "auto"
     use_gpu: bool = False
+    auto_tune_clustering: bool = False
 
 
 @dataclass
