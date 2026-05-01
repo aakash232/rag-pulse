@@ -39,7 +39,7 @@ clustering:
   use_gpu: false          # set true for cuML UMAP at >100k chunks
 
 inference:
-  nli_model: deberta-v3-base-mnli
+  nli_model: cross-encoder/nli-deberta-v3-base
   device: cuda            # cuda only in v1; cpu raises an error
 
 dashboard:

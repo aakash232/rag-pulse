@@ -20,6 +20,8 @@ dependencies = [
     "hdbscan>=0.8",
     "scikit-learn>=1.3",
     "joblib>=1.3",
+    "transformers>=4.35",
+    "sentencepiece>=0.1.99",
 ]
 
 [project.optional-dependencies]

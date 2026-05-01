@@ -35,7 +35,7 @@ class ClusteringConfig:
 
 @dataclass
 class InferenceConfig:
-    nli_model: str = "deberta-v3-base-mnli"
+    nli_model: str = "cross-encoder/nli-deberta-v3-base"
     device: str = "cuda"
 
 

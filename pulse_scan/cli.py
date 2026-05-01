@@ -101,6 +101,13 @@ def scan(
         conn=conn, data_dir=data_dir, clustering_config=cfg.clustering
     ).run()
 
+    # Stage 4: NLI contradiction detection (Detector A, skip triage for now)
+    from pulse_scan.stages.stage4_nli import NLIContradictionStage
+    nli_stats = NLIContradictionStage(
+        conn=conn, data_dir=data_dir, scan_run_id=run_id,
+        inference_config=cfg.inference, scan_config=cfg.scan,
+    ).run()
+
     typer.echo(
         f"Scan complete [{run_id[:8]}]\n"
         f"  new:       {stats['chunks_new']}\n"
@@ -117,7 +124,10 @@ def scan(
         f"  chunks in groups:      {dedup_stats['chunks_in_groups']}\n"
         f"\nClustering:\n"
         f"  clusters found:        {cluster_stats['clusters_found']}\n"
-        f"  noise chunks:          {cluster_stats['noise_chunks']}"
+        f"  noise chunks:          {cluster_stats['noise_chunks']}\n"
+        f"\nContradictions (NLI, cold start):\n"
+        f"  pairs checked:         {nli_stats['pairs_checked']}\n"
+        f"  contradictions found:  {nli_stats['contradictions_found']}"
     )
     conn.close()
 
