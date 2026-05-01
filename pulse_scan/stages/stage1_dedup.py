@@ -1,11 +1,12 @@
-"""Stage 1: Deduplication — embedding channel.
+"""Stage 1: Deduplication — embedding channel + text channel.
 
-Builds an in-memory HNSW index over all active chunk embeddings, queries
-each chunk for k=10 nearest neighbors, and groups pairs with cosine
-similarity above the dedup_cosine_threshold (from calibration) via
+Embedding channel: builds an in-memory HNSW index, queries k=10 nearest
+neighbors, groups pairs above the calibrated dedup_cosine_threshold via
 union-find.
 
-Text-channel dedup (MinHash + LSH) is added in Step 9.
+Text channel (TextDeduplicateStage): runs MinHash + LSH over 3-word shingles,
+finds pairs with Jaccard similarity ≥ TEXT_JACCARD_THRESHOLD (default 0.8),
+then merges/annotates the dedup_groups table produced by the embedding pass.
 """
 
 import json
@@ -185,3 +186,165 @@ class DeduplicateStage:
                 "No calibration found. Run 'pulse scan' or 'pulse calibrate' first."
             )
         return float(row[0])
+
+
+# ---------------------------------------------------------------------------
+# Text-channel dedup (MinHash + LSH)
+# ---------------------------------------------------------------------------
+
+class TextDeduplicateStage:
+    """Augments dedup_groups produced by the embedding pass using text similarity.
+
+    Runs MinHash LSH over 3-word shingles. For each text-similar pair it:
+    - adds 'text' to detection_channels when both members are already in the
+      same embedding group;
+    - adds the un-grouped member to an existing group when only one is grouped;
+    - merges two different embedding groups when both members are already grouped;
+    - creates a new text-only group when neither member is in any group.
+
+    Must be called AFTER DeduplicateStage.run() because it reads and rewrites
+    the dedup_groups table.
+    """
+
+    TEXT_JACCARD_THRESHOLD = 0.8
+    NUM_PERM = 128
+    SHINGLE_K = 3
+
+    def __init__(
+        self,
+        conn: duckdb.DuckDBPyConnection,
+        threshold: float | None = None,
+    ):
+        self.conn = conn
+        self._threshold = threshold if threshold is not None else self.TEXT_JACCARD_THRESHOLD
+
+    def run(self) -> dict:
+        from datasketch import MinHash, MinHashLSH
+
+        rows = self.conn.execute(
+            "SELECT chunk_id, text, resolved_timestamp "
+            "FROM chunks WHERE deleted_at IS NULL ORDER BY chunk_id"
+        ).fetchall()
+
+        if len(rows) < 2:
+            return {"groups_added": 0, "channels_updated": 0, "total_groups": 0}
+
+        chunk_ids = [r[0] for r in rows]
+        texts = {r[0]: r[1] or "" for r in rows}
+        timestamps = {r[0]: str(r[2]) if r[2] else "0000" for r in rows}
+        text_lens = {r[0]: len(r[1] or "") for r in rows}
+
+        # Build MinHash index
+        lsh = MinHashLSH(threshold=self._threshold, num_perm=self.NUM_PERM)
+        minhashes: dict[str, MinHash] = {}
+        for cid in chunk_ids:
+            m = MinHash(num_perm=self.NUM_PERM)
+            for s in self._shingles(texts[cid]):
+                m.update(s)
+            minhashes[cid] = m
+            lsh.insert(cid, m)
+
+        # Find all candidate pairs
+        text_pairs: set[frozenset] = set()
+        for cid in chunk_ids:
+            for other in lsh.query(minhashes[cid]):
+                if other != cid:
+                    text_pairs.add(frozenset([cid, other]))
+
+        if not text_pairs:
+            log.info("dedup_text_complete", pairs_found=0, groups_added=0, channels_updated=0)
+            return {"groups_added": 0, "channels_updated": 0, "total_groups": 0}
+
+        # Load existing embedding-channel groups
+        group_rows = self.conn.execute(
+            "SELECT group_id, canonical_chunk_id, member_chunk_ids, detection_channels "
+            "FROM dedup_groups ORDER BY group_id"
+        ).fetchall()
+
+        chunk_to_group: dict[str, int] = {}
+        groups: dict[int, dict] = {}
+
+        for gid, canonical, members_json, channels_json in group_rows:
+            members = set(json.loads(members_json))
+            channels = set(json.loads(channels_json))
+            groups[gid] = {"members": members, "channels": channels}
+            for m in members:
+                chunk_to_group[m] = gid
+
+        next_gid = max(groups.keys(), default=-1) + 1
+        groups_added = 0
+        channels_updated = 0
+
+        for pair in text_pairs:
+            a, b = sorted(pair)
+            ga = chunk_to_group.get(a)
+            gb = chunk_to_group.get(b)
+
+            if ga is not None and gb is not None and ga == gb:
+                if "text" not in groups[ga]["channels"]:
+                    groups[ga]["channels"].add("text")
+                    channels_updated += 1
+
+            elif ga is None and gb is None:
+                gid = next_gid
+                next_gid += 1
+                groups[gid] = {"members": {a, b}, "channels": {"text"}}
+                chunk_to_group[a] = gid
+                chunk_to_group[b] = gid
+                groups_added += 1
+
+            elif ga is not None and gb is None:
+                groups[ga]["members"].add(b)
+                groups[ga]["channels"].add("text")
+                chunk_to_group[b] = ga
+
+            elif gb is not None and ga is None:
+                groups[gb]["members"].add(a)
+                groups[gb]["channels"].add("text")
+                chunk_to_group[a] = gb
+
+            else:
+                # Merge two different groups: absorb smaller into larger
+                keep = ga if len(groups[ga]["members"]) >= len(groups[gb]["members"]) else gb
+                drop = gb if keep == ga else ga
+                groups[keep]["members"] |= groups[drop]["members"]
+                groups[keep]["channels"] |= groups[drop]["channels"]
+                groups[keep]["channels"].add("text")
+                for m in groups[drop]["members"]:
+                    chunk_to_group[m] = keep
+                del groups[drop]
+
+        # Rewrite dedup_groups with final consolidated state
+        self.conn.execute("DELETE FROM dedup_groups")
+        for gid, info in sorted(groups.items()):
+            canonical = max(
+                info["members"],
+                key=lambda x: (timestamps.get(x, "0000"), text_lens.get(x, 0)),
+            )
+            self.conn.execute(
+                "INSERT INTO dedup_groups "
+                "(group_id, canonical_chunk_id, member_chunk_ids, detection_channels) "
+                "VALUES (?, ?, ?, ?)",
+                [gid, canonical, json.dumps(sorted(info["members"])),
+                 json.dumps(sorted(info["channels"]))],
+            )
+
+        total_groups = len(groups)
+        log.info(
+            "dedup_text_complete",
+            pairs_found=len(text_pairs),
+            groups_added=groups_added,
+            channels_updated=channels_updated,
+            total_groups=total_groups,
+        )
+        return {"groups_added": groups_added, "channels_updated": channels_updated,
+                "total_groups": total_groups}
+
+    def _shingles(self, text: str) -> list[bytes]:
+        words = text.lower().split()
+        k = self.SHINGLE_K
+        if not words:
+            return [b""]
+        if len(words) < k:
+            return [" ".join(words).encode("utf-8")]
+        return [" ".join(words[i:i+k]).encode("utf-8") for i in range(len(words) - k + 1)]

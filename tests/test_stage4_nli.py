@@ -402,6 +402,49 @@ def test_nli_skips_when_no_clustered_chunks(tmp_path):
     conn.close()
 
 
+def test_nli_respects_allowed_chunk_ids(tmp_path):
+    """Restricting allowed_chunk_ids reduces the candidate pairs passed to the model."""
+    corpus_dir = tmp_path / "corpus"
+    corpus_dir.mkdir()
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    _make_cluster_fixture(corpus_dir, n_per_cluster=8, dim=8)
+
+    conn = open_db(data_dir)
+    _run_pipeline(conn, corpus_dir, data_dir)
+
+    pair_counts: list[int] = []
+
+    def _counting_predict(pairs):
+        pair_counts.append(len(pairs))
+        return [{"contradiction": 0.0, "entailment": 1.0, "neutral": 0.0}] * len(pairs)
+
+    stage = NLIContradictionStage(
+        conn=conn, data_dir=data_dir, scan_run_id="run-001",
+        _predict_fn=_counting_predict,
+    )
+
+    # Run with no restriction: all clustered chunks participate
+    stage.run()
+    total_unrestricted = sum(pair_counts)
+
+    # Run with only one chunk from cluster 0 allowed
+    cluster_0_ids = [
+        r[0] for r in conn.execute(
+            "SELECT chunk_id FROM chunks WHERE cluster_id = 0 AND deleted_at IS NULL"
+        ).fetchall()
+    ]
+    pair_counts.clear()
+    stage.run(allowed_chunk_ids={cluster_0_ids[0]})
+    total_restricted = sum(pair_counts)
+
+    # Restricting to 1 of 24 chunks must yield fewer (or equal if already 0) candidate pairs
+    assert total_restricted <= total_unrestricted
+    # With 8 chunks per cluster and 3 clusters unrestricted has more queries than 1 chunk
+    assert total_restricted < total_unrestricted
+    conn.close()
+
+
 def test_nli_raises_without_calibration(tmp_path):
     """RuntimeError is raised if calibration table is empty."""
     corpus_dir = tmp_path / "corpus"

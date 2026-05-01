@@ -67,8 +67,15 @@ def scan(
             typer.echo("ERROR: fixture_dir must be set for store type 'fixture'", err=True)
             raise typer.Exit(code=1)
         adapter = LocalFixtureAdapter(fixture_dir)
+    elif cfg.store.type == "chroma":
+        from pulse_scan.adapters.chroma import ChromaAdapter
+        adapter = ChromaAdapter(
+            host=cfg.store.connection.get("host", "localhost"),
+            port=int(cfg.store.connection.get("port", 8000)),
+            collection_prefix=cfg.store.connection.get("collection_prefix", ""),
+        )
     else:
-        typer.echo(f"ERROR: Unsupported store type '{cfg.store.type}' in v1", err=True)
+        typer.echo(f"ERROR: Unsupported store type '{cfg.store.type}'. Supported: fixture, chroma", err=True)
         raise typer.Exit(code=1)
 
     conn = open_db(data_dir)
@@ -92,8 +99,9 @@ def scan(
         log.info("calibration_skipped_using_cached", thresholds=thresholds)
 
     # Stage 1: Embedding-channel dedup
-    from pulse_scan.stages.stage1_dedup import DeduplicateStage
+    from pulse_scan.stages.stage1_dedup import DeduplicateStage, TextDeduplicateStage
     dedup_stats = DeduplicateStage(conn=conn, data_dir=data_dir).run()
+    text_dedup_stats = TextDeduplicateStage(conn=conn).run()
 
     # Stage 2: Clustering (UMAP + HDBSCAN)
     from pulse_scan.stages.stage2_cluster import ClusterStage
@@ -101,13 +109,50 @@ def scan(
         conn=conn, data_dir=data_dir, clustering_config=cfg.clustering
     ).run()
 
-    # Stage 4: NLI contradiction detection (Detector A, skip triage for now)
+    # Stage 3: Triage — select which chunks get NLI budget
+    from pulse_scan.stages.stage3_triage import TriageStage
+    allowed_chunk_ids, triage_stats = TriageStage(
+        conn=conn, scan_run_id=run_id,
+        scan_config=cfg.scan,
+        collection_configs=cfg.collections,
+    ).run()
+
+    # Stage 4: NLI contradiction detection (Detector A)
     from pulse_scan.stages.stage4_nli import NLIContradictionStage
     nli_stats = NLIContradictionStage(
         conn=conn, data_dir=data_dir, scan_run_id=run_id,
         inference_config=cfg.inference, scan_config=cfg.scan,
+    ).run(allowed_chunk_ids=allowed_chunk_ids)
+
+    # Stage 9 detectors: numeric + version
+    from pulse_scan.stages.stage9_detectors import (
+        NumericContradictionDetector, VersionContradictionDetector,
+    )
+    numeric_stats = {"pairs_checked": 0, "contradictions_found": 0}
+    version_stats = {"pairs_checked": 0, "contradictions_found": 0}
+    if cfg.scan.enable_numeric_detector:
+        numeric_stats = NumericContradictionDetector(conn=conn, scan_run_id=run_id).run()
+    if cfg.scan.enable_version_detector:
+        version_stats = VersionContradictionDetector(conn=conn, scan_run_id=run_id).run()
+
+    # Stage 5: Staleness scoring
+    from pulse_scan.stages.stage5_staleness import StalenessStage
+    staleness_stats = StalenessStage(
+        conn=conn, data_dir=data_dir,
+        collection_configs=cfg.collections,
     ).run()
 
+    # Stage 6: JSON report
+    from pulse_scan.stages.stage6_report import ReportStage
+    report_path = ReportStage(
+        conn=conn, data_dir=data_dir, run_id=run_id,
+        store_type=cfg.store.type,
+    ).run()
+
+    label_lines = "".join(
+        f"  {label}:{'':>{20 - len(label)}}{count}\n"
+        for label, count in staleness_stats.get("label_counts", {}).items()
+    )
     typer.echo(
         f"Scan complete [{run_id[:8]}]\n"
         f"  new:       {stats['chunks_new']}\n"
@@ -119,15 +164,27 @@ def scan(
         f"  dedup cosine:          {thresholds['dedup_cosine_threshold']:.4f}\n"
         f"  contradiction cosine:  {thresholds['contradiction_candidate_threshold']:.4f}\n"
         f"  cluster density:       {thresholds['cluster_min_density']:.4f}\n"
-        f"\nDeduplication (embedding channel):\n"
-        f"  groups found:          {dedup_stats['groups_found']}\n"
-        f"  chunks in groups:      {dedup_stats['chunks_in_groups']}\n"
+        f"\nDeduplication:\n"
+        f"  embedding groups:      {dedup_stats['groups_found']}\n"
+        f"  chunks in emb groups:  {dedup_stats['chunks_in_groups']}\n"
+        f"  text groups added:     {text_dedup_stats['groups_added']}\n"
+        f"  emb groups +text:      {text_dedup_stats['channels_updated']}\n"
         f"\nClustering:\n"
         f"  clusters found:        {cluster_stats['clusters_found']}\n"
         f"  noise chunks:          {cluster_stats['noise_chunks']}\n"
-        f"\nContradictions (NLI, cold start):\n"
-        f"  pairs checked:         {nli_stats['pairs_checked']}\n"
-        f"  contradictions found:  {nli_stats['contradictions_found']}"
+        f"\nTriage:\n"
+        f"  chunks scored:         {triage_stats['chunks_scored']}\n"
+        f"  chunks allowed (NLI):  {triage_stats['chunks_allowed']}\n"
+        f"  budget used:           {triage_stats['budget_used']}\n"
+        f"\nContradictions:\n"
+        f"  NLI pairs checked:     {nli_stats['pairs_checked']}\n"
+        f"  NLI found:             {nli_stats['contradictions_found']}\n"
+        f"  numeric found:         {numeric_stats['contradictions_found']}\n"
+        f"  version found:         {version_stats['contradictions_found']}\n"
+        f"\nStaleness scoring:\n"
+        f"  chunks scored:         {staleness_stats['chunks_scored']}\n"
+        + label_lines
+        + f"\nReport: {report_path}"
     )
     conn.close()
 
@@ -139,10 +196,22 @@ def dashboard(
         "--data-dir",
         help="Directory containing the DuckDB control plane",
     ),
+    port: int = typer.Option(8501, "--port", "-p", help="Port to serve dashboard on"),
 ) -> None:
-    """Launch the Streamlit dashboard (Step 11)."""
-    typer.echo("Dashboard not yet implemented (Step 11).")
-    raise typer.Exit(code=1)
+    """Launch the Streamlit dashboard."""
+    import subprocess
+    import sys
+    from pulse_scan.dashboard import app as _dashboard_app
+
+    app_path = str(Path(_dashboard_app.__file__).resolve())
+    cmd = [
+        sys.executable, "-m", "streamlit", "run", app_path,
+        "--server.port", str(port),
+        "--server.headless", "true",
+        "--", "--data-dir", str(data_dir.resolve()),
+    ]
+    typer.echo(f"Starting dashboard on http://localhost:{port}")
+    raise typer.Exit(code=subprocess.run(cmd).returncode)
 
 
 @app.command()

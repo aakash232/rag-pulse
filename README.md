@@ -56,10 +56,10 @@ v1 is being built in the order described in §10 of the LLD. Each step is gated 
 4. [x] Embedding-channel dedup (Stage 1, half)
 5. [x] Clustering (Stage 2)
 6. [x] NLI contradiction detection (Stage 4, one detector)
-7. [ ] Staleness scoring (Stage 5)
-8. [ ] JSON report (Stage 6, half)
-9. [ ] Text-channel dedup, numeric/version detectors
-10. [ ] Triage with cost budget (Stage 3)
-11. [ ] Streamlit dashboard with calibration loop
-12. [ ] Chroma adapter
+7. [x] Staleness scoring (Stage 5)
+8. [x] JSON report (Stage 6, half)
+9. [x] Text-channel dedup, numeric/version detectors
+10. [x] Triage with cost budget (Stage 3)
+11. [x] Streamlit dashboard with calibration loop
+12. [x] Chroma adapter
 13. [ ] AWS ECS deployment scripts

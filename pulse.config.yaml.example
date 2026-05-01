@@ -4,13 +4,18 @@
 
 store:
   type: fixture
-  # For the fixture adapter, point fixture_dir at your corpus directory.
-  # For Chroma (v1 production target), use:
+  # ── fixture adapter (dev / benchmark) ──────────────────────────────────────
+  # Point fixture_dir at a directory of per-collection JSON files.
+  #
+  # ── Chroma adapter (v1 production target) ──────────────────────────────────
+  # Install the optional extra first:  pip install pulse-scan[chroma]
+  #
   #   type: chroma
   #   connection:
   #     host: localhost
   #     port: 8000
-  #     collection_prefix: ""   # optional filter
+  #     collection_prefix: ""   # expose only collections whose names start
+  #                             # with this prefix (prefix is stripped)
 
 # Path to fixture corpus (only used when store.type: fixture)
 fixture_dir: benchmark/corpus

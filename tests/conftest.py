@@ -4,6 +4,10 @@ import pytest
 import numpy as np
 from pathlib import Path
 
+# Must be set before chromadb (and its opentelemetry/protobuf deps) are first
+# imported.  On Python 3.14 the protobuf C extension has a compatibility issue
+# with chromadb 1.x; the pure-Python implementation works correctly.
+os.environ.setdefault("PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION", "python")
 
 # Disable GPU check for all tests
 os.environ.setdefault("PULSE_SKIP_GPU_CHECK", "1")

@@ -44,7 +44,14 @@ class NLIContradictionStage:
     # Public interface
     # ------------------------------------------------------------------
 
-    def run(self) -> dict:
+    def run(self, allowed_chunk_ids: Optional[set] = None) -> dict:
+        """Run NLI on candidate pairs.
+
+        allowed_chunk_ids: if provided (from TriageStage), only chunks in this
+        set are used as query points when generating candidate pairs.  Neighbors
+        may still be any clustered chunk.  Pass None to scan all chunks (default,
+        used in tests and when budget is unlimited).
+        """
         threshold = self._get_candidate_threshold()
         k = self._scan_cfg.contradiction_candidates_per_chunk if self._scan_cfg else 5
         batch_size = self._scan_cfg.nli_batch_size if self._scan_cfg else 64
@@ -83,7 +90,8 @@ class NLIContradictionStage:
 
         dedup_pairs = self._load_dedup_pairs()
         candidate_pairs = self._find_candidates(
-            chunk_ids, cluster_ids, texts, embeddings, dedup_pairs, threshold, k
+            chunk_ids, cluster_ids, texts, embeddings, dedup_pairs, threshold, k,
+            allowed_query_ids=allowed_chunk_ids,
         )
 
         if not candidate_pairs:
@@ -120,8 +128,14 @@ class NLIContradictionStage:
         dedup_pairs: set,
         threshold: float,
         k: int,
+        allowed_query_ids: Optional[set] = None,
     ) -> list[tuple]:
-        """Return list of (id_a, text_a, id_b, text_b) unique unordered pairs."""
+        """Return list of (id_a, text_a, id_b, text_b) unique unordered pairs.
+
+        When allowed_query_ids is provided, only chunks in that set are used as
+        query points (a → budget-gated).  Neighbor chunks (b) may be any cluster
+        member.
+        """
         cluster_to_indices: dict[int, list[int]] = defaultdict(list)
         for idx, cid in enumerate(cluster_ids):
             cluster_to_indices[cid].append(idx)
@@ -136,6 +150,8 @@ class NLIContradictionStage:
             cosines = embs @ embs.T  # pairwise cosines (all normalized)
 
             for local_i, global_i in enumerate(indices):
+                if allowed_query_ids is not None and chunk_ids[global_i] not in allowed_query_ids:
+                    continue  # triage: skip non-allowed query chunks
                 row_cosines = cosines[local_i]
                 ranked = sorted(
                     [
