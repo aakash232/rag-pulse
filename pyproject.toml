@@ -1,0 +1,33 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "pulse-scan"
+version = "0.1.0"
+description = "Read-only RAG corpus health scanner"
+requires-python = ">=3.11"
+dependencies = [
+    "duckdb>=0.10",
+    "numpy>=1.26",
+    "xxhash>=3.4",
+    "pyyaml>=6.0",
+    "typer>=0.12",
+    "structlog>=24.0",
+    "torch>=2.2",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+    "pytest-cov",
+]
+
+[project.scripts]
+pulse = "pulse_scan.cli:app"
+
+[tool.hatch.build.targets.wheel]
+packages = ["pulse_scan"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

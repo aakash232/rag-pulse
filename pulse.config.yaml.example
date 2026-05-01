@@ -1,0 +1,47 @@
+# pulse-scan example configuration
+# WARNING: This tool shows chunk text plainly. Do not run on data containing
+# PII or sensitive content. PII redaction is planned for v1.1.
+
+store:
+  type: fixture
+  # For the fixture adapter, point fixture_dir at your corpus directory.
+  # For Chroma (v1 production target), use:
+  #   type: chroma
+  #   connection:
+  #     host: localhost
+  #     port: 8000
+  #     collection_prefix: ""   # optional filter
+
+# Path to fixture corpus (only used when store.type: fixture)
+fixture_dir: benchmark/corpus
+
+# Optional: override the embedding model used in this store.
+# If omitted, pulse infers from embedding dimension.
+# embedding_model: openai-text-embedding-3-small
+
+collections:
+  - name: docs
+    timestamp_field: created_at   # metadata key holding chunk creation time
+    half_life_days: 90            # content half-life for staleness scoring
+  - name: pricing
+    timestamp_field: createdAt
+    half_life_days: 18
+
+scan:
+  cost_budget: 50000                    # cost units per scan (NLI pair = 1 unit)
+  nli_batch_size: 64                    # GPU batch size for NLI inference
+  contradiction_candidates_per_chunk: 5 # top-k neighbors per chunk for NLI
+  enable_numeric_detector: true
+  enable_version_detector: true
+
+clustering:
+  min_cluster_size: auto  # auto = max(5, sqrt(N)/4); or set an integer
+  use_gpu: false          # set true for cuML UMAP at >100k chunks
+
+inference:
+  nli_model: deberta-v3-base-mnli
+  device: cuda            # cuda only in v1; cpu raises an error
+
+dashboard:
+  host: 127.0.0.1
+  port: 8080
