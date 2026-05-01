@@ -15,6 +15,7 @@ dependencies = [
     "typer>=0.12",
     "structlog>=24.0",
     "torch>=2.2",
+    "hnswlib>=0.8.0",
 ]
 
 [project.optional-dependencies]

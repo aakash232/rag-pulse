@@ -76,8 +76,20 @@ def scan(
 
     log.info("scan_started", run_id=run_id, store_type=cfg.store.type)
 
+    # Stage 0: Ingest
     stage0 = IngestStage(conn=conn, adapter=adapter, config=cfg, data_dir=data_dir)
     stats = stage0.run(run_id=run_id)
+
+    # Stage 0.5: Calibrate (if needed)
+    from pulse_scan.stages.stage05_calibrate import CalibrateStage
+    calibrator = CalibrateStage(conn=conn, data_dir=data_dir)
+    thresholds = None
+    if calibrator.should_run():
+        thresholds = calibrator.run(scan_run_id=run_id)
+    else:
+        from pulse_scan.stages.stage05_calibrate import load_latest_calibration
+        thresholds = load_latest_calibration(conn)
+        log.info("calibration_skipped_using_cached", thresholds=thresholds)
 
     typer.echo(
         f"Scan complete [{run_id[:8]}]\n"
@@ -85,7 +97,11 @@ def scan(
         f"  unchanged: {stats['chunks_unchanged']}\n"
         f"  updated:   {stats['chunks_updated']}\n"
         f"  deleted:   {stats['chunks_deleted']}\n"
-        f"  elapsed:   {stats['elapsed_secs']:.1f}s"
+        f"  elapsed:   {stats['elapsed_secs']:.1f}s\n"
+        f"\nCalibration thresholds:\n"
+        f"  dedup cosine:          {thresholds['dedup_cosine_threshold']:.4f}\n"
+        f"  contradiction cosine:  {thresholds['contradiction_candidate_threshold']:.4f}\n"
+        f"  cluster density:       {thresholds['cluster_min_density']:.4f}"
     )
     conn.close()
 
@@ -111,6 +127,18 @@ def calibrate(
         help="Directory containing the DuckDB control plane",
     ),
 ) -> None:
-    """Trigger manual recalibration (Step 3)."""
-    typer.echo("Calibration not yet implemented (Step 3).")
-    raise typer.Exit(code=1)
+    """Force re-run calibration against the current corpus."""
+    from pulse_scan.db.schema import open_db
+    from pulse_scan.stages.stage05_calibrate import CalibrateStage
+
+    conn = open_db(data_dir)
+    run_id = str(uuid.uuid4())
+    calibrator = CalibrateStage(conn=conn, data_dir=data_dir)
+    thresholds = calibrator.run(scan_run_id=run_id)
+    typer.echo(
+        "Calibration complete:\n"
+        f"  dedup cosine:          {thresholds['dedup_cosine_threshold']:.4f}\n"
+        f"  contradiction cosine:  {thresholds['contradiction_candidate_threshold']:.4f}\n"
+        f"  cluster density:       {thresholds['cluster_min_density']:.4f}"
+    )
+    conn.close()

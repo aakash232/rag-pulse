@@ -1,0 +1,297 @@
+"""Stage 0.5: Calibration.
+
+Computes per-corpus cosine similarity thresholds before any thresholded
+operation runs. Without this, dedup and contradiction detection use
+hardcoded numbers that break across different embedding models.
+
+Two paths:
+  Small corpus (<500 chunks): model-specific defaults from dimension lookup.
+  Large corpus (>=500 chunks): HNSW-based empirical distribution sampling.
+"""
+
+import json
+from pathlib import Path
+from typing import Optional
+
+import duckdb
+import hnswlib
+import numpy as np
+import structlog
+import xxhash
+
+log = structlog.get_logger()
+
+# From LLD §3 Stage 0
+KNOWN_MODELS: dict[int, list[str]] = {
+    1536: ["openai-ada-002", "openai-text-embedding-3-small"],
+    3072: ["openai-text-embedding-3-large"],
+    768: ["sentence-transformers/all-mpnet-base-v2", "BGE-base", "E5-base"],
+    1024: ["BGE-large", "E5-large", "Voyage-2", "Cohere-embed-v3"],
+    384: ["sentence-transformers/all-MiniLM-L6-v2"],
+}
+
+# Conservative per-model defaults (for small corpora where distributions are noisy)
+_MODEL_DEFAULTS: dict[int, tuple[float, float, float]] = {
+    # dim: (dedup_threshold, contradiction_candidate_threshold, cluster_density)
+    384:  (0.950, 0.850, 0.750),
+    768:  (0.930, 0.820, 0.720),
+    1024: (0.920, 0.800, 0.700),
+    1536: (0.900, 0.780, 0.680),
+    3072: (0.880, 0.760, 0.650),
+}
+_GENERIC_DEFAULTS: tuple[float, float, float] = (0.920, 0.820, 0.720)
+
+SAMPLE_SIZE = 2000
+K_NEIGHBORS = 10
+GROWTH_THRESHOLD = 0.50  # re-calibrate if corpus grows by >50%
+
+
+def _model_defaults(dim: Optional[int]) -> tuple[float, float, float]:
+    if dim is None:
+        return _GENERIC_DEFAULTS
+    if dim in _MODEL_DEFAULTS:
+        return _MODEL_DEFAULTS[dim]
+    # Multiple known models for this dim → use most conservative (lowest thresholds)
+    closest = min(_MODEL_DEFAULTS, key=lambda d: abs(d - dim))
+    return _MODEL_DEFAULTS[closest]
+
+
+def _sample_hash(chunk_ids: list[str]) -> str:
+    h = xxhash.xxh64()
+    for cid in sorted(chunk_ids):
+        h.update(cid.encode())
+    return h.hexdigest()
+
+
+class CalibrateStage:
+    def __init__(
+        self,
+        conn: duckdb.DuckDBPyConnection,
+        data_dir: Path,
+        small_corpus_threshold: int = 500,
+    ):
+        self.conn = conn
+        self.data_dir = data_dir
+        self.small_corpus_threshold = small_corpus_threshold
+
+    # ------------------------------------------------------------------
+    # Public interface
+    # ------------------------------------------------------------------
+
+    def should_run(self) -> bool:
+        """True on first scan, or if corpus grew >50% since last calibration."""
+        last_dist = self._last_distributions()
+        if last_dist is None:
+            return True
+        last_size = last_dist.get("corpus_size", 0)
+        if last_size == 0:
+            return True
+        current_size = self._count_active_chunks()
+        return (current_size - last_size) / last_size > GROWTH_THRESHOLD
+
+    def run(self, scan_run_id: str) -> dict:
+        """Run calibration. Returns threshold dict."""
+        rows = self.conn.execute(
+            "SELECT chunk_id, embedding_offset FROM chunks "
+            "WHERE deleted_at IS NULL AND embedding_offset >= 0"
+        ).fetchall()
+
+        meta_path = self.data_dir / "embeddings.meta.json"
+
+        if not rows or not meta_path.exists():
+            log.warning("calibration_no_data", n_rows=len(rows), meta_exists=meta_path.exists())
+            dedup, contradiction, density = _model_defaults(None)
+            return self._as_dict(dedup, contradiction, density)
+
+        meta = json.loads(meta_path.read_text())
+        dim: int = meta["dim"]
+        corpus_size = len(rows)
+
+        if corpus_size < self.small_corpus_threshold:
+            return self._small_corpus_path(dim, corpus_size, rows, scan_run_id)
+        return self._hnsw_path(rows, meta, scan_run_id)
+
+    # ------------------------------------------------------------------
+    # Internal: small corpus path
+    # ------------------------------------------------------------------
+
+    def _small_corpus_path(
+        self,
+        dim: int,
+        corpus_size: int,
+        rows: list[tuple],
+        scan_run_id: str,
+    ) -> dict:
+        dedup, contradiction, density = _model_defaults(dim)
+        chunk_ids = [r[0] for r in rows]
+        distributions = {
+            "method": "model_defaults",
+            "dim": dim,
+            "corpus_size": corpus_size,
+            "model_family": KNOWN_MODELS.get(dim, ["unknown"]),
+        }
+        self._persist(
+            scan_run_id, _sample_hash(chunk_ids[:SAMPLE_SIZE]),
+            dedup, contradiction, density, distributions,
+        )
+        log.info(
+            "calibration_complete",
+            method="model_defaults",
+            dim=dim,
+            corpus_size=corpus_size,
+            dedup_cosine_threshold=dedup,
+            contradiction_candidate_threshold=contradiction,
+            cluster_min_density=density,
+        )
+        return self._as_dict(dedup, contradiction, density)
+
+    # ------------------------------------------------------------------
+    # Internal: HNSW distribution-based path
+    # ------------------------------------------------------------------
+
+    def _hnsw_path(
+        self,
+        rows: list[tuple],
+        meta: dict,
+        scan_run_id: str,
+    ) -> dict:
+        dim: int = meta["dim"]
+        n_allocated: int = meta["n_allocated"]
+        chunk_ids = [r[0] for r in rows]
+        offsets = [r[1] for r in rows]
+        corpus_size = len(rows)
+
+        # Load and normalize embeddings from memmap
+        mmap = np.memmap(
+            self.data_dir / "embeddings.f32.npy",
+            dtype=np.float32,
+            mode="r",
+            shape=(n_allocated, dim),
+        )
+        all_embs = np.array(mmap[offsets], dtype=np.float32)
+        del mmap
+
+        norms = np.linalg.norm(all_embs, axis=1, keepdims=True)
+        norms[norms == 0] = 1.0
+        all_embs /= norms
+
+        # Sample
+        N = min(SAMPLE_SIZE, corpus_size)
+        rng = np.random.default_rng(42)
+        sample_idx = (
+            rng.choice(corpus_size, size=N, replace=False)
+            if N < corpus_size
+            else np.arange(N)
+        )
+        sample_embs = all_embs[sample_idx].astype(np.float32)
+        sample_ids = [chunk_ids[i] for i in sample_idx]
+
+        # Baseline distribution: random pairs (approximates expected cosine)
+        n_pairs = min(10_000, N * (N - 1) // 2)
+        ia = rng.integers(0, N, size=n_pairs * 2)
+        ib = rng.integers(0, N, size=n_pairs * 2)
+        valid = ia != ib
+        ia, ib = ia[valid][:n_pairs], ib[valid][:n_pairs]
+        baseline_cosines = (sample_embs[ia] * sample_embs[ib]).sum(axis=1)
+
+        # Neighbor distribution: HNSW nearest-neighbor cosines
+        k = min(K_NEIGHBORS + 1, N)  # +1 because first result is self
+        index = hnswlib.Index(space="cosine", dim=dim)
+        index.init_index(max_elements=N, ef_construction=200, M=16)
+        index.set_ef(max(50, k * 2))
+        index.add_items(sample_embs, np.arange(N))
+
+        _, distances = index.knn_query(sample_embs, k=k)
+        # hnswlib cosine space: distance = 1 - cosine_similarity
+        # Exclude first column (self-match, distance ≈ 0)
+        neighbor_cosines = (1.0 - distances[:, 1:]).flatten()
+
+        # Derive thresholds (LLD §3 Stage 0.5)
+        dedup = float(np.percentile(neighbor_cosines, 99.5))
+        contradiction = float(np.percentile(neighbor_cosines, 90.0))
+        density = float(np.median(neighbor_cosines))
+
+        distributions = {
+            "method": "hnsw",
+            "dim": dim,
+            "corpus_size": corpus_size,
+            "sample_size": N,
+            "baseline_p50": float(np.median(baseline_cosines)),
+            "baseline_p95": float(np.percentile(baseline_cosines, 95)),
+            "neighbor_p50": density,
+            "neighbor_p90": contradiction,
+            "neighbor_p995": dedup,
+        }
+        self._persist(
+            scan_run_id, _sample_hash(sample_ids),
+            dedup, contradiction, density, distributions,
+        )
+        log.info(
+            "calibration_complete",
+            method="hnsw",
+            corpus_size=corpus_size,
+            sample_size=N,
+            dedup_cosine_threshold=dedup,
+            contradiction_candidate_threshold=contradiction,
+            cluster_min_density=density,
+        )
+        return self._as_dict(dedup, contradiction, density)
+
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
+
+    def _persist(
+        self,
+        scan_run_id: str,
+        sample_hash: str,
+        dedup: float,
+        contradiction: float,
+        density: float,
+        distributions: dict,
+    ) -> None:
+        self.conn.execute(
+            """INSERT INTO calibration (
+                scan_run_id, sample_hash,
+                dedup_threshold, contradiction_candidate_threshold, cluster_min_density,
+                distributions
+            ) VALUES (?, ?, ?, ?, ?, ?)""",
+            [scan_run_id, sample_hash, dedup, contradiction, density, json.dumps(distributions)],
+        )
+
+    def _last_distributions(self) -> Optional[dict]:
+        row = self.conn.execute(
+            "SELECT distributions FROM calibration ORDER BY rowid DESC LIMIT 1"
+        ).fetchone()
+        if row is None or row[0] is None:
+            return None
+        return json.loads(row[0])
+
+    def _count_active_chunks(self) -> int:
+        row = self.conn.execute(
+            "SELECT COUNT(*) FROM chunks WHERE deleted_at IS NULL"
+        ).fetchone()
+        return row[0] if row else 0
+
+    @staticmethod
+    def _as_dict(dedup: float, contradiction: float, density: float) -> dict:
+        return {
+            "dedup_cosine_threshold": dedup,
+            "contradiction_candidate_threshold": contradiction,
+            "cluster_min_density": density,
+        }
+
+
+def load_latest_calibration(conn: duckdb.DuckDBPyConnection) -> Optional[dict]:
+    """Load the most recent calibration thresholds from DuckDB."""
+    row = conn.execute(
+        "SELECT dedup_threshold, contradiction_candidate_threshold, cluster_min_density "
+        "FROM calibration ORDER BY rowid DESC LIMIT 1"
+    ).fetchone()
+    if row is None:
+        return None
+    return {
+        "dedup_cosine_threshold": row[0],
+        "contradiction_candidate_threshold": row[1],
+        "cluster_min_density": row[2],
+    }
