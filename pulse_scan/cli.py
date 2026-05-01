@@ -91,6 +91,10 @@ def scan(
         thresholds = load_latest_calibration(conn)
         log.info("calibration_skipped_using_cached", thresholds=thresholds)
 
+    # Stage 1: Embedding-channel dedup
+    from pulse_scan.stages.stage1_dedup import DeduplicateStage
+    dedup_stats = DeduplicateStage(conn=conn, data_dir=data_dir).run()
+
     typer.echo(
         f"Scan complete [{run_id[:8]}]\n"
         f"  new:       {stats['chunks_new']}\n"
@@ -101,7 +105,10 @@ def scan(
         f"\nCalibration thresholds:\n"
         f"  dedup cosine:          {thresholds['dedup_cosine_threshold']:.4f}\n"
         f"  contradiction cosine:  {thresholds['contradiction_candidate_threshold']:.4f}\n"
-        f"  cluster density:       {thresholds['cluster_min_density']:.4f}"
+        f"  cluster density:       {thresholds['cluster_min_density']:.4f}\n"
+        f"\nDeduplication (embedding channel):\n"
+        f"  groups found:          {dedup_stats['groups_found']}\n"
+        f"  chunks in groups:      {dedup_stats['chunks_in_groups']}"
     )
     conn.close()
 

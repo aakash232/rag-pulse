@@ -51,9 +51,9 @@ See `pulse.config.yaml.example` for the full configuration reference.
 v1 is being built in the order described in §10 of the LLD. Each step is gated on approval:
 
 1. [x] Fixture adapter + Stage 0 ingestion + DuckDB schema
-2. [ ] Synthetic 50-chunk benchmark corpus
-3. [ ] Calibration (Stage 0.5)
-4. [ ] Embedding-channel dedup (Stage 1, half)
+2. [x] Synthetic 50-chunk benchmark corpus
+3. [x] Calibration (Stage 0.5)
+4. [x] Embedding-channel dedup (Stage 1, half)
 5. [ ] Clustering (Stage 2)
 6. [ ] NLI contradiction detection (Stage 4, one detector)
 7. [ ] Staleness scoring (Stage 5)
