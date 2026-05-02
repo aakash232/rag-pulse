@@ -230,7 +230,7 @@ with tab_contra:
         if resolutions_to_save:
             if st.button(f"💾 Save {len(resolutions_to_save)} resolution(s)"):
                 for (ca, cb), res in resolutions_to_save.items():
-                    resolve_contradiction(conn, ca, cb, res)
+                    resolve_contradiction(data_dir, ca, cb, res)
                 st.success(f"Saved {len(resolutions_to_save)} resolution(s).")
                 st.rerun()
 

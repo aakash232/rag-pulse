@@ -280,8 +280,11 @@ def test_resolve_contradiction_sets_resolution(tmp_path):
     _insert_chunk(conn, "a")
     _insert_chunk(conn, "b")
     _insert_contradiction(conn, "a", "b")
+    conn.close()
 
-    resolve_contradiction(conn, "a", "b", "confirmed")
+    resolve_contradiction(tmp_path, "a", "b", "confirmed")
+
+    conn = open_db(tmp_path)
     row = conn.execute(
         "SELECT user_resolution FROM contradictions WHERE chunk_a = 'a' AND chunk_b = 'b'"
     ).fetchone()
@@ -295,8 +298,11 @@ def test_resolve_contradiction_works_both_orders(tmp_path):
     _insert_chunk(conn, "a")
     _insert_chunk(conn, "b")
     _insert_contradiction(conn, "a", "b")
+    conn.close()
 
-    resolve_contradiction(conn, "b", "a", "false_positive")
+    resolve_contradiction(tmp_path, "b", "a", "false_positive")
+
+    conn = open_db(tmp_path)
     row = conn.execute(
         "SELECT user_resolution FROM contradictions"
     ).fetchone()

@@ -19,7 +19,12 @@ def open_connection(data_dir: Path) -> Optional[duckdb.DuckDBPyConnection]:
     db_path = data_dir / "pulse.db"
     if not db_path.exists():
         return None
-    return duckdb.connect(str(db_path))
+    return duckdb.connect(str(db_path), read_only=True)
+
+
+def _open_rw(data_dir: Path) -> duckdb.DuckDBPyConnection:
+    """Short-lived read-write connection for mutations (closes immediately after use)."""
+    return duckdb.connect(str(data_dir / "pulse.db"))
 
 
 # ---------------------------------------------------------------------------
@@ -211,18 +216,22 @@ def get_triage_summary(
 # ---------------------------------------------------------------------------
 
 def resolve_contradiction(
-    conn: duckdb.DuckDBPyConnection,
+    data_dir: Path,
     chunk_a: str,
     chunk_b: str,
     resolution: str,
 ) -> None:
     """Set user_resolution on a contradiction pair (both ordered directions)."""
-    conn.execute(
-        "UPDATE contradictions "
-        "SET user_resolution = ?, resolved_at = CURRENT_TIMESTAMP "
-        "WHERE (chunk_a = ? AND chunk_b = ?) OR (chunk_a = ? AND chunk_b = ?)",
-        [resolution, chunk_a, chunk_b, chunk_b, chunk_a],
-    )
+    rw = _open_rw(data_dir)
+    try:
+        rw.execute(
+            "UPDATE contradictions "
+            "SET user_resolution = ?, resolved_at = CURRENT_TIMESTAMP "
+            "WHERE (chunk_a = ? AND chunk_b = ?) OR (chunk_a = ? AND chunk_b = ?)",
+            [resolution, chunk_a, chunk_b, chunk_b, chunk_a],
+        )
+    finally:
+        rw.close()
 
 
 def get_resolution_summary(conn: duckdb.DuckDBPyConnection) -> dict:
