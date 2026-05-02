@@ -15,9 +15,12 @@ import streamlit as st
 
 from pulse_scan.dashboard.queries import (
     get_contradictions,
+    get_contradictions_count,
     get_corpus_overview,
     get_dedup_groups,
+    get_dedup_groups_count,
     get_resolution_summary,
+    get_staleness_count,
     get_staleness_df,
     get_staleness_label_counts,
     get_triage_summary,
@@ -88,6 +91,41 @@ VERDICT_OPTIONS: dict[str, str | None] = {
     "✅ Confirmed — real contradiction":     "confirmed",
     "❌ False positive — not a real conflict": "false_positive",
 }
+
+# Items rendered per page — keep low enough that Streamlit stays responsive.
+PAGE_SIZE_CONTRA = 25
+PAGE_SIZE_STALE = 50
+PAGE_SIZE_DUPS = 25
+
+# ---------------------------------------------------------------------------
+# Pagination helper
+# ---------------------------------------------------------------------------
+
+def _pagination_nav(state_key: str, total: int, page_size: int, key_suffix: str = "") -> int:
+    """Renders Prev / page-info / Next row. Returns the current 0-based page.
+
+    Pass key_suffix="_bot" for a second nav rendered below the same list to
+    avoid Streamlit duplicate-key errors.
+    """
+    total_pages = max(1, (total + page_size - 1) // page_size)
+    page = int(st.session_state.get(state_key, 0))
+    page = max(0, min(page, total_pages - 1))
+    st.session_state[state_key] = page
+
+    c_prev, c_info, c_next = st.columns([1, 4, 1])
+    with c_prev:
+        if st.button("← Prev", key=f"{state_key}_prev{key_suffix}", disabled=(page == 0)):
+            st.session_state[state_key] -= 1
+            st.rerun()
+    with c_info:
+        st.caption(f"Page {page + 1} / {total_pages}  ·  {total:,} items total")
+    with c_next:
+        if st.button("Next →", key=f"{state_key}_next{key_suffix}", disabled=(page >= total_pages - 1)):
+            st.session_state[state_key] += 1
+            st.rerun()
+
+    return st.session_state[state_key]
+
 
 # ---------------------------------------------------------------------------
 # Low-level visual helpers
@@ -167,7 +205,6 @@ def render_staleness(conn) -> None:
 
     label_counts = get_staleness_label_counts(conn)
 
-    # Summary strip — one metric per label with tooltip explanation
     c1, c2, c3, c4 = st.columns(4)
     for col, label in zip([c1, c2, c3, c4], ["fresh", "aging", "stale", "abandoned"]):
         col.metric(
@@ -185,15 +222,30 @@ def render_staleness(conn) -> None:
         key="stale_label_filter",
     )
     filter_val = LABEL_FILTER_OPTIONS[label_choice]
-    df_stale = get_staleness_df(conn, label_filter=filter_val)
 
-    if df_stale.empty:
+    # Reset page when filter changes.
+    filter_sig = filter_val
+    if st.session_state.get("stale_filter_sig") != filter_sig:
+        st.session_state["stale_filter_sig"] = filter_sig
+        st.session_state["stale_page"] = 0
+
+    total = get_staleness_count(conn, label_filter=filter_val)
+    if total == 0:
         st.info("No chunks match this filter. Run `pulse scan` to populate staleness scores.")
         return
 
-    st.caption(f"{len(df_stale)} chunk(s) — sorted by score descending (worst first)")
+    page = _pagination_nav("stale_page", total, PAGE_SIZE_STALE)
+    offset = page * PAGE_SIZE_STALE
+
+    df_stale = get_staleness_df(conn, label_filter=filter_val, limit=PAGE_SIZE_STALE, offset=offset)
+    st.divider()
     for _, row in df_stale.iterrows():
         _render_staleness_chunk(row.to_dict())
+
+    # Bottom nav for long pages
+    if total > PAGE_SIZE_STALE:
+        st.divider()
+        _pagination_nav("stale_page", total, PAGE_SIZE_STALE, key_suffix="_bot")
 
 
 # ---------------------------------------------------------------------------
@@ -320,26 +372,50 @@ def _render_dup_group(g: dict) -> None:
 
 def render_duplicates(conn) -> None:
     st.header("Duplicate groups")
-    groups = get_dedup_groups(conn)
+    total = get_dedup_groups_count(conn)
 
-    if not groups:
+    if total == 0:
         st.info("No duplicate groups found in this scan.")
         return
 
     st.caption(
-        f"{len(groups)} group(s) detected. "
+        f"{total:,} group(s) detected. "
         "Each group contains near-identical chunks — keep the canonical one, remove the rest."
     )
+
+    page = _pagination_nav("dup_page", total, PAGE_SIZE_DUPS)
+    offset = page * PAGE_SIZE_DUPS
+
+    groups = get_dedup_groups(conn, limit=PAGE_SIZE_DUPS, offset=offset)
+    st.divider()
     for g in groups:
         _render_dup_group(g)
+
+    if total > PAGE_SIZE_DUPS:
+        st.divider()
+        _pagination_nav("dup_page", total, PAGE_SIZE_DUPS, key_suffix="_bot")
 
 
 # ---------------------------------------------------------------------------
 # Contradictions tab
 # ---------------------------------------------------------------------------
 
-def _render_contradiction_card(c: dict, key_prefix: str) -> str | None:
-    """Renders one contradiction card. Returns chosen resolution key or None."""
+def _make_verdict_callback(chunk_a: str, chunk_b: str, radio_key: str):
+    """Returns an on_change callback that stages the verdict in session_state."""
+    def _cb() -> None:
+        val = st.session_state.get(radio_key)
+        resolution = VERDICT_OPTIONS.get(val)
+        pv: dict = st.session_state.setdefault("pending_verdicts", {})
+        pair = (chunk_a, chunk_b)
+        if resolution:
+            pv[pair] = resolution
+        elif pair in pv:
+            del pv[pair]
+    return _cb
+
+
+def _render_contradiction_card(c: dict, key_prefix: str) -> None:
+    """Renders one contradiction card; verdict is staged in session_state via on_change."""
     icon = DETECTOR_ICON.get(c["detector"], "⚡")
     direction = DIRECTION_LABEL.get(c["direction"], c["direction"])
     score_pct = int((c["raw_score"] or 0) * 100)
@@ -359,15 +435,16 @@ def _render_contradiction_card(c: dict, key_prefix: str) -> str | None:
 
         if c["user_resolution"]:
             _resolution_badge(c["user_resolution"])
-            return None
+            return
 
-        choice = st.radio(
+        radio_key = f"{key_prefix}_res"
+        st.radio(
             "Your verdict",
             list(VERDICT_OPTIONS.keys()),
             horizontal=True,
-            key=f"{key_prefix}_res",
+            key=radio_key,
+            on_change=_make_verdict_callback(c["chunk_a"], c["chunk_b"], radio_key),
         )
-        return VERDICT_OPTIONS.get(choice)
 
 
 def render_contradictions(conn, run_id: str, data_dir: Path) -> None:
@@ -377,6 +454,7 @@ def render_contradictions(conn, run_id: str, data_dir: Path) -> None:
         "Your verdicts feed back into NLI threshold calibration on the next scan."
     )
 
+    # --- Filters ---
     f1, f2 = st.columns(2)
     with f1:
         detector_filter = st.selectbox(
@@ -385,32 +463,67 @@ def render_contradictions(conn, run_id: str, data_dir: Path) -> None:
     with f2:
         show_all = st.checkbox("Show resolved contradictions", value=False)
 
-    contradictions = get_contradictions(
-        conn,
-        run_id=run_id,
-        unresolved_only=not show_all,
-        detector=detector_filter if detector_filter != "all" else None,
-    )
+    # Reset to page 0 when any filter changes.
+    filter_sig = (run_id, detector_filter, show_all)
+    if st.session_state.get("contra_filter_sig") != filter_sig:
+        st.session_state["contra_filter_sig"] = filter_sig
+        st.session_state["contra_page"] = 0
 
-    if not contradictions:
+    unresolved_only = not show_all
+    det = detector_filter if detector_filter != "all" else None
+
+    total = get_contradictions_count(conn, run_id=run_id, unresolved_only=unresolved_only, detector=det)
+
+    if total == 0:
         st.success("No contradictions match the current filters.")
         return
 
-    st.caption(f"{len(contradictions)} pair(s)")
-    resolutions: dict[tuple, str] = {}
+    # --- Show saved-verdicts success toast (set by Save button on previous run) ---
+    if "contra_save_count" in st.session_state:
+        n_saved = st.session_state.pop("contra_save_count")
+        st.toast(f"Saved {n_saved} verdict(s).", icon="✅")
 
-    for i, c in enumerate(contradictions):
-        key_prefix = f"contra_{i}_{c['chunk_a']}_{c['chunk_b']}"
-        resolution = _render_contradiction_card(c, key_prefix)
-        if resolution:
-            resolutions[(c["chunk_a"], c["chunk_b"])] = resolution
-
-    if resolutions:
-        if st.button(f"💾 Save {len(resolutions)} verdict(s)"):
-            for (ca, cb), res in resolutions.items():
-                resolve_contradiction(data_dir, ca, cb, res)
-            st.success(
-                f"Saved {len(resolutions)} verdict(s). "
-                "Run `pulse calibrate` or `pulse scan` to apply the updated NLI threshold."
+    # --- Pending-verdict save bar ---
+    pv: dict = st.session_state.setdefault("pending_verdicts", {})
+    n_pending = len(pv)
+    if n_pending:
+        save_col, info_col = st.columns([1, 4])
+        with save_col:
+            if st.button(f"💾 Save {n_pending} verdict(s)", type="primary"):
+                # Close the read-only conn before opening a RW one; st.rerun()
+                # immediately follows so a fresh conn is opened on the next pass.
+                conn.close()
+                for (ca, cb), res in list(pv.items()):
+                    resolve_contradiction(data_dir, ca, cb, res)
+                st.session_state["pending_verdicts"] = {}
+                st.session_state["contra_save_count"] = n_pending
+                st.rerun()
+        with info_col:
+            st.caption(
+                f"{n_pending} verdict(s) staged across all pages — "
+                "navigating pages does **not** lose them."
             )
-            st.rerun()
+
+    # --- Pagination + items ---
+    page = _pagination_nav("contra_page", total, PAGE_SIZE_CONTRA)
+    offset = page * PAGE_SIZE_CONTRA
+
+    contradictions = get_contradictions(
+        conn,
+        run_id=run_id,
+        unresolved_only=unresolved_only,
+        detector=det,
+        limit=PAGE_SIZE_CONTRA,
+        offset=offset,
+    )
+
+    st.divider()
+    for i, c in enumerate(contradictions):
+        global_idx = offset + i
+        key_prefix = f"contra_{global_idx}_{c['chunk_a']}_{c['chunk_b']}"
+        _render_contradiction_card(c, key_prefix)
+
+    # Bottom nav
+    if total > PAGE_SIZE_CONTRA:
+        st.divider()
+        _pagination_nav("contra_page", total, PAGE_SIZE_CONTRA, key_suffix="_bot")

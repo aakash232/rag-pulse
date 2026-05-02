@@ -75,21 +75,36 @@ def get_staleness_label_counts(conn: duckdb.DuckDBPyConnection) -> dict:
     return counts
 
 
+def get_staleness_count(
+    conn: duckdb.DuckDBPyConnection,
+    label_filter: Optional[str] = None,
+) -> int:
+    conditions = ["deleted_at IS NULL", "staleness_score IS NOT NULL"]
+    params: list = []
+    if label_filter and label_filter != "all":
+        conditions.append("staleness_label = ?")
+        params.append(label_filter)
+    where = "WHERE " + " AND ".join(conditions)
+    return conn.execute(f"SELECT COUNT(*) FROM chunks {where}", params).fetchone()[0]
+
+
 def get_staleness_df(
     conn: duckdb.DuckDBPyConnection,
     label_filter: Optional[str] = None,
+    limit: Optional[int] = None,
+    offset: int = 0,
 ) -> pd.DataFrame:
-    where = ""
-    params = []
+    params: list = []
     conditions = ["deleted_at IS NULL", "staleness_score IS NOT NULL"]
     if label_filter and label_filter != "all":
         conditions.append("staleness_label = ?")
         params.append(label_filter)
     where = "WHERE " + " AND ".join(conditions)
+    pagination = f" LIMIT {int(limit)} OFFSET {int(offset)}" if limit is not None else ""
     rows = conn.execute(
         f"SELECT chunk_id, collection, staleness_score, staleness_label, "
         f"       staleness_components, text, resolved_timestamp "
-        f"FROM chunks {where} ORDER BY staleness_score DESC",
+        f"FROM chunks {where} ORDER BY staleness_score DESC{pagination}",
         params,
     ).fetchall()
     records = []
@@ -110,22 +125,47 @@ def get_staleness_df(
     return pd.DataFrame(records)
 
 
-def get_dedup_groups(conn: duckdb.DuckDBPyConnection) -> list[dict]:
-    rows = conn.execute(
+def get_dedup_groups_count(conn: duckdb.DuckDBPyConnection) -> int:
+    return conn.execute("SELECT COUNT(*) FROM dedup_groups").fetchone()[0]
+
+
+def get_dedup_groups(
+    conn: duckdb.DuckDBPyConnection,
+    limit: Optional[int] = None,
+    offset: int = 0,
+) -> list[dict]:
+    sql = (
         "SELECT group_id, canonical_chunk_id, member_chunk_ids, detection_channels "
         "FROM dedup_groups ORDER BY group_id"
-    ).fetchall()
-    result = []
+    )
+    if limit is not None:
+        sql += f" LIMIT {int(limit)} OFFSET {int(offset)}"
+    rows = conn.execute(sql).fetchall()
+    if not rows:
+        return []
+
+    # Parse all groups first, collect every chunk ID in one pass.
+    parsed: list[tuple] = []
+    all_ids: list[str] = []
     for gid, canonical, members_json, channels_json in rows:
         member_ids = json.loads(members_json)
         channels = json.loads(channels_json)
-        placeholders = ", ".join("?" * len(member_ids))
+        parsed.append((gid, canonical, member_ids, channels))
+        all_ids.extend(member_ids)
+
+    # Single bulk lookup instead of one query per group.
+    chunk_map: dict[str, tuple] = {}
+    if all_ids:
+        placeholders = ", ".join("?" * len(all_ids))
         chunk_rows = conn.execute(
             f"SELECT chunk_id, text, collection, staleness_score "
             f"FROM chunks WHERE chunk_id IN ({placeholders})",
-            member_ids,
+            all_ids,
         ).fetchall()
         chunk_map = {r[0]: r for r in chunk_rows}
+
+    result = []
+    for gid, canonical, member_ids, channels in parsed:
         members = [
             {
                 "chunk_id": cid,
@@ -146,11 +186,35 @@ def get_dedup_groups(conn: duckdb.DuckDBPyConnection) -> list[dict]:
     return result
 
 
+def get_contradictions_count(
+    conn: duckdb.DuckDBPyConnection,
+    run_id: Optional[str] = None,
+    unresolved_only: bool = True,
+    detector: Optional[str] = None,
+) -> int:
+    conditions: list[str] = []
+    params: list = []
+    if run_id:
+        conditions.append("scan_run_id = ?")
+        params.append(run_id)
+    if unresolved_only:
+        conditions.append("user_resolution IS NULL")
+    if detector and detector != "all":
+        conditions.append("detector = ?")
+        params.append(detector)
+    where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+    return conn.execute(
+        f"SELECT COUNT(*) FROM contradictions {where}", params
+    ).fetchone()[0]
+
+
 def get_contradictions(
     conn: duckdb.DuckDBPyConnection,
     run_id: Optional[str] = None,
     unresolved_only: bool = True,
     detector: Optional[str] = None,
+    limit: Optional[int] = None,
+    offset: int = 0,
 ) -> list[dict]:
     conditions = []
     params: list = []
@@ -163,6 +227,7 @@ def get_contradictions(
         conditions.append("c.detector = ?")
         params.append(detector)
     where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+    pagination = f" LIMIT {int(limit)} OFFSET {int(offset)}" if limit is not None else ""
     rows = conn.execute(
         f"""SELECT c.chunk_a, c.chunk_b, c.detector, c.raw_score,
                    c.calibration_state, c.direction, c.user_resolution,
@@ -173,7 +238,7 @@ def get_contradictions(
             LEFT JOIN chunks ca ON ca.chunk_id = c.chunk_a
             LEFT JOIN chunks cb ON cb.chunk_id = c.chunk_b
             {where}
-            ORDER BY c.raw_score DESC""",
+            ORDER BY c.raw_score DESC{pagination}""",
         params,
     ).fetchall()
     result = []
