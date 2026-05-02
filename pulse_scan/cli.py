@@ -1,6 +1,7 @@
 """pulse-scan CLI entry point."""
 
 import os
+import time
 import uuid
 from pathlib import Path
 
@@ -78,7 +79,18 @@ def scan(
         typer.echo(f"ERROR: Unsupported store type '{cfg.store.type}'. Supported: fixture, chroma", err=True)
         raise typer.Exit(code=1)
 
-    conn = open_db(data_dir)
+    # DuckDB disallows concurrent cross-process access. If the dashboard is open
+    # it holds a read-only lock briefly per render; retry until the window clears.
+    for attempt in range(10):
+        try:
+            conn = open_db(data_dir)
+            break
+        except Exception as exc:
+            if "lock" in str(exc).lower() and attempt < 9:
+                typer.echo(f"DB locked (dashboard open?), retrying in 2s… ({attempt + 1}/10)")
+                time.sleep(2)
+            else:
+                raise
     run_id = str(uuid.uuid4())
 
     log.info("scan_started", run_id=run_id, store_type=cfg.store.type)

@@ -265,3 +265,6 @@ with tab_stale:
                 "text": st.column_config.TextColumn("Text (preview)", max_chars=120),
             },
         )
+
+# Release the read-only lock so pulse scan can acquire a write lock between renders.
+conn.close()
