@@ -20,7 +20,7 @@ import structlog
 
 log = structlog.get_logger()
 
-_NLI_SCORE_THRESHOLD = 0.5  # cold-start raw contradiction threshold
+_NLI_SCORE_THRESHOLD_DEFAULT = 0.5  # used when no calibrated threshold exists
 
 
 class NLIContradictionStage:
@@ -53,6 +53,7 @@ class NLIContradictionStage:
         used in tests and when budget is unlimited).
         """
         threshold = self._get_candidate_threshold()
+        nli_threshold = self._get_nli_score_threshold()
         k = self._scan_cfg.contradiction_candidates_per_chunk if self._scan_cfg else 5
         batch_size = self._scan_cfg.nli_batch_size if self._scan_cfg else 64
 
@@ -105,13 +106,14 @@ class NLIContradictionStage:
         )
 
         predict = self._get_predict_fn()
-        n_contradictions = self._run_nli(candidate_pairs, predict, batch_size)
+        n_contradictions = self._run_nli(candidate_pairs, predict, batch_size, nli_threshold)
 
         log.info(
             "nli_complete",
             pairs_checked=len(candidate_pairs),
             contradictions_found=n_contradictions,
-            threshold=round(threshold, 4),
+            candidate_threshold=round(threshold, 4),
+            nli_score_threshold=round(nli_threshold, 4),
         )
         return {"pairs_checked": len(candidate_pairs), "contradictions_found": n_contradictions}
 
@@ -195,6 +197,7 @@ class NLIContradictionStage:
         candidate_pairs: list[tuple],
         predict_fn: Callable,
         batch_size: int,
+        nli_threshold: float = _NLI_SCORE_THRESHOLD_DEFAULT,
     ) -> int:
         forward_inputs = [(ta, tb) for (_, ta, _, tb) in candidate_pairs]
         backward_inputs = [(tb, ta) for (_, ta, _, tb) in candidate_pairs]
@@ -207,8 +210,8 @@ class NLIContradictionStage:
             cf = scores_fwd[i].get("contradiction", 0.0)
             cb = scores_bwd[i].get("contradiction", 0.0)
 
-            fwd_hit = cf > _NLI_SCORE_THRESHOLD
-            bwd_hit = cb > _NLI_SCORE_THRESHOLD
+            fwd_hit = cf > nli_threshold
+            bwd_hit = cb > nli_threshold
 
             if not fwd_hit and not bwd_hit:
                 continue
@@ -257,6 +260,10 @@ class NLIContradictionStage:
             raise RuntimeError("No calibration found. Run 'pulse calibrate' first.")
         return float(row[0])
 
+    def _get_nli_score_threshold(self) -> float:
+        from pulse_scan.stages.stage05_calibrate import load_nli_score_threshold
+        return load_nli_score_threshold(self.conn)
+
     def _get_predict_fn(self) -> Callable:
         if self.__predict_fn is not None:
             return self.__predict_fn
@@ -269,7 +276,12 @@ class NLIContradictionStage:
             else "cross-encoder/nli-deberta-v3-base"
         )
         device_str = self._inf_cfg.device if self._inf_cfg else "cuda"
-        device = 0 if device_str == "cuda" else -1
+        if device_str == "cuda":
+            device = 0
+        elif device_str == "mps":
+            device = "mps"
+        else:
+            device = -1
 
         from transformers import pipeline as hf_pipeline
 

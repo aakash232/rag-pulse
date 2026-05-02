@@ -1,10 +1,11 @@
 from datetime import datetime
-from typing import Iterator, Optional, Protocol
+from typing import Iterator, Optional, Protocol, runtime_checkable
 import numpy as np
 
 from pulse_scan.models import ChunkBatch, CollectionInfo
 
 
+@runtime_checkable
 class VectorStoreAdapter(Protocol):
     def list_collections(self) -> list[CollectionInfo]: ...
 

@@ -44,6 +44,8 @@ _GENERIC_DEFAULTS: tuple[float, float, float] = (0.920, 0.820, 0.720)
 SAMPLE_SIZE = 2000
 K_NEIGHBORS = 10
 GROWTH_THRESHOLD = 0.50  # re-calibrate if corpus grows by >50%
+NLI_FEEDBACK_MIN_LABELS = 5  # minimum labeled contradictions to attempt re-tuning
+NLI_DEFAULT_THRESHOLD = 0.50
 
 
 def _model_defaults(dim: Optional[int]) -> tuple[float, float, float]:
@@ -108,8 +110,14 @@ class CalibrateStage:
         corpus_size = len(rows)
 
         if corpus_size < self.small_corpus_threshold:
-            return self._small_corpus_path(dim, corpus_size, rows, scan_run_id)
-        return self._hnsw_path(rows, meta, scan_run_id)
+            thresholds = self._small_corpus_path(dim, corpus_size, rows, scan_run_id)
+        else:
+            thresholds = self._hnsw_path(rows, meta, scan_run_id)
+
+        # Re-tune NLI threshold from human feedback (no-op if too few labels)
+        nli_t = retune_nli_threshold(self.conn)
+        thresholds["nli_score_threshold"] = nli_t
+        return thresholds
 
     # ------------------------------------------------------------------
     # Internal: small corpus path
@@ -280,6 +288,102 @@ class CalibrateStage:
             "contradiction_candidate_threshold": contradiction,
             "cluster_min_density": density,
         }
+
+
+def retune_nli_threshold(conn: duckdb.DuckDBPyConnection) -> float:
+    """Re-tune the NLI contradiction score threshold using human-labeled feedback.
+
+    Reads confirmed/false_positive rows from the contradictions table, sweeps
+    candidate thresholds, picks the one maximising F0.5 (precision-weighted),
+    then writes the result back into the latest calibration row's distributions
+    JSON.  Also back-fills calibrated_confidence and calibration_state on all
+    NLI contradiction rows.
+
+    Returns the chosen threshold (or NLI_DEFAULT_THRESHOLD if too few labels).
+    """
+    rows = conn.execute(
+        "SELECT raw_score, user_resolution "
+        "FROM contradictions "
+        "WHERE detector = 'nli' AND user_resolution IN ('confirmed', 'false_positive')"
+    ).fetchall()
+
+    confirmed = [float(r[0]) for r in rows if r[1] == "confirmed"]
+    false_pos  = [float(r[0]) for r in rows if r[1] == "false_positive"]
+    n_labeled  = len(confirmed) + len(false_pos)
+
+    if n_labeled < NLI_FEEDBACK_MIN_LABELS:
+        log.info(
+            "nli_retune_skipped_too_few_labels",
+            n_labeled=n_labeled,
+            min_required=NLI_FEEDBACK_MIN_LABELS,
+        )
+        return NLI_DEFAULT_THRESHOLD
+
+    all_scores = confirmed + false_pos
+    all_labels = [1] * len(confirmed) + [0] * len(false_pos)
+
+    best_t = NLI_DEFAULT_THRESHOLD
+    best_f = 0.0
+    beta = 0.5  # F0.5 — precision-weighted
+
+    for t in sorted(set(all_scores)):
+        tp = sum(1 for s, l in zip(all_scores, all_labels) if s >= t and l == 1)
+        fp = sum(1 for s, l in zip(all_scores, all_labels) if s >= t and l == 0)
+        if tp + fp == 0:
+            continue
+        precision = tp / (tp + fp)
+        recall    = tp / len(confirmed) if confirmed else 0.0
+        if precision + recall == 0:
+            continue
+        f = (1 + beta**2) * precision * recall / (beta**2 * precision + recall)
+        if f > best_f:
+            best_f = f
+            best_t = float(t)
+
+    # Persist threshold into the latest calibration row's distributions JSON
+    cal_row = conn.execute(
+        "SELECT rowid, distributions FROM calibration ORDER BY rowid DESC LIMIT 1"
+    ).fetchone()
+    if cal_row is not None:
+        rowid, dist_json = cal_row
+        dist = json.loads(dist_json) if dist_json else {}
+        dist["nli_score_threshold"] = best_t
+        dist["nli_retune_n_confirmed"] = len(confirmed)
+        dist["nli_retune_n_false_pos"] = len(false_pos)
+        conn.execute(
+            "UPDATE calibration SET distributions = ? WHERE rowid = ?",
+            [json.dumps(dist), rowid],
+        )
+
+    # Back-fill calibrated_confidence + calibration_state on NLI rows
+    conn.execute(
+        "UPDATE contradictions "
+        "SET calibrated_confidence = raw_score, "
+        "    calibration_state = CASE WHEN raw_score >= ? THEN 'calibrated' "
+        "                            ELSE 'below_threshold' END "
+        "WHERE detector = 'nli'",
+        [best_t],
+    )
+
+    log.info(
+        "nli_retune_complete",
+        threshold=round(best_t, 4),
+        n_confirmed=len(confirmed),
+        n_false_pos=len(false_pos),
+        f_score=round(best_f, 4),
+    )
+    return best_t
+
+
+def load_nli_score_threshold(conn: duckdb.DuckDBPyConnection) -> float:
+    """Return the calibrated NLI score threshold, or 0.5 if not yet tuned."""
+    row = conn.execute(
+        "SELECT distributions FROM calibration ORDER BY rowid DESC LIMIT 1"
+    ).fetchone()
+    if row is None or row[0] is None:
+        return NLI_DEFAULT_THRESHOLD
+    dist = json.loads(row[0])
+    return float(dist.get("nli_score_threshold", NLI_DEFAULT_THRESHOLD))
 
 
 def load_latest_calibration(conn: duckdb.DuckDBPyConnection) -> Optional[dict]:

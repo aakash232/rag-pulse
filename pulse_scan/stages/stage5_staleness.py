@@ -17,7 +17,6 @@ chunks.staleness_components (JSON for per-component explainability).
 """
 
 import json
-import math
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional

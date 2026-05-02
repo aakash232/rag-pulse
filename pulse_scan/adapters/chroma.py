@@ -36,9 +36,10 @@ from typing import Any, Iterator, Optional
 import numpy as np
 
 from pulse_scan.models import ChunkBatch, ChunkRecord, CollectionInfo
+from pulse_scan.adapters.base import VectorStoreAdapter
 
 
-class ChromaAdapter:
+class ChromaAdapter(VectorStoreAdapter):
     """Implements VectorStoreAdapter for Chroma (HTTP or in-process)."""
 
     def __init__(
@@ -77,7 +78,9 @@ class ChromaAdapter:
         chroma_collections = client.list_collections()
         result = []
         for col in chroma_collections:
-            if self.collection_prefix and not col.name.startswith(self.collection_prefix):
+            if self.collection_prefix and not col.name.startswith(
+                self.collection_prefix
+            ):
                 continue
             name = self._strip_prefix(col.name)
             result.append(
@@ -151,10 +154,7 @@ class ChromaAdapter:
         chroma_name = self._add_prefix(collection)
         col = client.get_collection(chroma_name)
         result = col.get(ids=chunk_ids, include=["embeddings"])
-        id_to_emb = {
-            cid: emb
-            for cid, emb in zip(result["ids"], result["embeddings"])
-        }
+        id_to_emb = {cid: emb for cid, emb in zip(result["ids"], result["embeddings"])}
         return np.array(
             [id_to_emb[cid] for cid in chunk_ids],
             dtype=np.float32,
@@ -169,12 +169,13 @@ class ChromaAdapter:
             return self._injected_client
         if self._client_cache is None:
             import chromadb
+
             self._client_cache = chromadb.HttpClient(host=self.host, port=self.port)
         return self._client_cache
 
     def _strip_prefix(self, chroma_name: str) -> str:
         if self.collection_prefix and chroma_name.startswith(self.collection_prefix):
-            return chroma_name[len(self.collection_prefix):]
+            return chroma_name[len(self.collection_prefix) :]
         return chroma_name
 
     def _add_prefix(self, collection: str) -> str:

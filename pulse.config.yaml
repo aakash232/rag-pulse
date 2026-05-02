@@ -31,10 +31,13 @@ collections:
   - name: pricing
     timestamp_field: createdAt
     half_life_days: 18
+  - name: api
+    timestamp_field: created_at
+    half_life_days: 60
 
 scan:
   cost_budget: 50000                    # cost units per scan (NLI pair = 1 unit)
-  nli_batch_size: 64                    # GPU batch size for NLI inference
+  nli_batch_size: 16                    # GPU batch size (lower for MPS/small VRAM)
   contradiction_candidates_per_chunk: 5 # top-k neighbors per chunk for NLI
   enable_numeric_detector: true
   enable_version_detector: true
@@ -45,8 +48,8 @@ clustering:
 
 inference:
   nli_model: cross-encoder/nli-deberta-v3-base
-  device: cuda            # cuda (NVIDIA), mps (Apple Silicon), or cpu
+  device: mps             # mps = Apple Silicon GPU; use cuda on NVIDIA, cpu for no GPU
 
 dashboard:
   host: 127.0.0.1
-  port: 8080
+  port: 8501

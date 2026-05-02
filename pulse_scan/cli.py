@@ -25,9 +25,9 @@ def _check_gpu() -> None:
         return
     try:
         import torch
-        if not torch.cuda.is_available():
+        if not torch.cuda.is_available() and not torch.backends.mps.is_available():
             typer.echo(
-                "ERROR: No CUDA-capable GPU detected. pulse-scan requires a GPU.\n"
+                "ERROR: No GPU detected (CUDA or MPS). pulse-scan requires a GPU.\n"
                 "Set up a GPU or, for local dev only, set PULSE_SKIP_GPU_CHECK=1.\n"
                 "See: https://github.com/kickdrumtech/pulse-scan/docs/gpu-setup",
                 err=True,
