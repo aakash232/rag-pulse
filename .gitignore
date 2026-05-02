@@ -5,3 +5,4 @@ __pycache__/
 .pulse/
 *.egg-info/
 dist/
+local_test/
