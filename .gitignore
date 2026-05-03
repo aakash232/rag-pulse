@@ -5,5 +5,7 @@ __pycache__/
 .pulse/
 *.egg-info/
 dist/
-local_test/
+local_test/chroma_data/
+local_test/.env
+local_test/pulse.config.yaml
 .DS_Store
