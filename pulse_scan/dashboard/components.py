@@ -77,6 +77,16 @@ COMPONENT_META: dict[str, tuple[str, str]] = {
 DETECTOR_ICON = {"nli": "🧠", "numeric": "🔢", "version": "🏷️"}
 DIRECTION_LABEL = {"a->b": "→", "b->a": "←", "both": "↔"}
 
+# Per-detector score display. "label" is the prefix; "show_pct" controls whether
+# raw_score is rendered as a percentage. Add new detectors here — rendering code
+# reads this dict and falls back to ("score", True) for anything not listed.
+DETECTOR_SCORE: dict[str, dict] = {
+    "nli":     {"label": "confidence",     "show_pct": True},
+    "numeric": {"label": "conflict score", "show_pct": True},
+    "version": {"label": "version mismatch", "show_pct": False},
+}
+_DETECTOR_SCORE_DEFAULT: dict = {"label": "score", "show_pct": True}
+
 LABEL_FILTER_OPTIONS: dict[str, str | None] = {
     "All": None,
     "🔴 Abandoned": "abandoned",
@@ -330,7 +340,8 @@ def render_overview(conn, run_id: str) -> None:
     st.subheader("Contradiction review progress")
     st.caption(
         "Reviewing contradictions is optional but improves detection accuracy — "
-        "confirmed/rejected labels re-tune the NLI threshold on the next scan."
+        "confirmed/rejected labels re-tune the NLI threshold on the next scan. "
+        "Counts are per unique chunk pair; NLI stores both directions internally."
     )
     r1, r2, r3 = st.columns(3)
     r1.metric("✅ Confirmed", res["confirmed"], help="Marked as real contradictions.")
@@ -414,14 +425,27 @@ def _make_verdict_callback(chunk_a: str, chunk_b: str, radio_key: str):
 
 def _render_contradiction_card(c: dict, key_prefix: str) -> None:
     """Renders one contradiction card; verdict is staged in session_state via on_change."""
-    icon = DETECTOR_ICON.get(c["detector"], "⚡")
-    direction = DIRECTION_LABEL.get(c["direction"], c["direction"])
-    score_pct = int((c["raw_score"] or 0) * 100)
+    detectors: list[str] = c.get("detectors") or []
+
+    # Build header badges — one per detector with its score inline.
+    badges: list[str] = []
+    if "nli" in detectors:
+        nli = c.get("nli_score")
+        badges.append(f"🧠 {int(nli * 100)}%" if nli is not None else "🧠 NLI")
+    if "numeric" in detectors:
+        num = c.get("numeric_score")
+        badges.append(f"🔢 {int(num * 100)}%" if num is not None else "🔢 Numeric")
+    if "version" in detectors:
+        badges.append("🏷️ Version")
+    if not badges:
+        badges = ["⚡"]
+
+    direction = DIRECTION_LABEL.get(c.get("nli_direction") or "", "↔")
     header = (
-        f"{icon} {c['detector'].upper()} &nbsp;·&nbsp; "
-        f"{c['chunk_a'][:22]} {direction} {c['chunk_b'][:22]} "
-        f"&nbsp;·&nbsp; confidence {score_pct}%"
+        " · ".join(badges)
+        + f" &nbsp;·&nbsp; {c['chunk_a'][:22]} {direction} {c['chunk_b'][:22]}"
     )
+
     with st.expander(header):
         col_a, col_b = st.columns(2)
         with col_a:
@@ -430,6 +454,28 @@ def _render_contradiction_card(c: dict, key_prefix: str) -> None:
         with col_b:
             st.markdown(f"**{c['chunk_b']}** &nbsp; `{c['collection_b']}`")
             st.text_area("", value=c["text_b"], height=140, key=f"{key_prefix}_tb", disabled=True)
+
+        # Per-detector signal details.
+        st.divider()
+        sig_lines: list[str] = []
+        if "nli" in detectors:
+            nli_score = c.get("nli_score")
+            nli_dir = DIRECTION_LABEL.get(c.get("nli_direction") or "", "")
+            line = f"🧠 **NLI** — confidence {int(nli_score * 100)}%" if nli_score is not None else "🧠 **NLI** — flagged"
+            if nli_dir:
+                line += f" · direction {nli_dir}"
+            sig_lines.append(line)
+        if "numeric" in detectors:
+            num_score = c.get("numeric_score")
+            sig_lines.append(
+                f"🔢 **Numeric** — conflict score {int(num_score * 100)}%"
+                if num_score is not None
+                else "🔢 **Numeric** — flagged"
+            )
+        if "version" in detectors:
+            sig_lines.append("🏷️ **Version** — version mismatch detected")
+        if sig_lines:
+            st.markdown("  \n".join(sig_lines))
 
         if c["user_resolution"]:
             _resolution_badge(c["user_resolution"])
@@ -457,18 +503,18 @@ def render_contradictions(conn, run_id: str, data_dir: Path) -> None:
     with f1:
         detector_filter = st.selectbox("Detector", ["all", "nli", "numeric", "version"], key="det_filter")
     with f2:
-        show_all = st.checkbox("Show resolved contradictions", value=False)
+        show_resolved = st.checkbox("Show resolved only", value=False)
 
     # Reset to page 0 when any filter changes.
-    filter_sig = (run_id, detector_filter, show_all)
+    filter_sig = (run_id, detector_filter, show_resolved)
     if st.session_state.get("contra_filter_sig") != filter_sig:
         st.session_state["contra_filter_sig"] = filter_sig
         st.session_state["contra_page"] = 0
 
-    unresolved_only = not show_all
+    resolution = "resolved" if show_resolved else "unresolved"
     det = detector_filter if detector_filter != "all" else None
 
-    total = get_contradictions_count(conn, run_id=run_id, unresolved_only=unresolved_only, detector=det)
+    total = get_contradictions_count(conn, run_id=run_id, resolution=resolution, detector=det)
 
     if total == 0:
         st.success("No contradictions match the current filters.")
@@ -504,7 +550,7 @@ def render_contradictions(conn, run_id: str, data_dir: Path) -> None:
     contradictions = get_contradictions(
         conn,
         run_id=run_id,
-        unresolved_only=unresolved_only,
+        resolution=resolution,
         detector=det,
         limit=PAGE_SIZE_CONTRA,
         offset=offset,

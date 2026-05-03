@@ -7,6 +7,26 @@ hardcoded numbers that break across different embedding models.
 Two paths:
   Small corpus (<500 chunks): model-specific defaults from dimension lookup.
   Large corpus (>=500 chunks): HNSW-based empirical distribution sampling.
+
+HNSW threshold formulas (formula_version=2):
+
+  contradiction = baseline_p95 + 0.5 * gap
+    where gap = neighbor_p50 - baseline_p95
+    → midpoint between "clearly random" and "clearly topically related";
+      robust across compressed (OpenAI) and spread (MiniLM) distributions.
+
+  dedup = neighbor_p99 - 0.1 * spread
+    where spread = neighbor_p99 - neighbor_p50
+    → just below the upper tail of the neighbor distribution; wide spread
+      (MiniLM) yields a threshold well below 1.0, compressed spread (OpenAI)
+      yields one near 0.999 — both correct for their model family.
+
+  density = neighbor_p50
+    → unchanged; median neighbor similarity describes typical cluster tightness.
+
+If the resulting thresholds violate baseline_p95 < contradiction < dedup < 1.0,
+the distribution is degenerate and the stage falls back to model_defaults with
+a warning log.
 """
 
 import json
@@ -205,24 +225,49 @@ class CalibrateStage:
 
         _, distances = index.knn_query(sample_embs, k=k)
         # hnswlib cosine space: distance = 1 - cosine_similarity
-        # Exclude first column (self-match, distance ≈ 0)
-        neighbor_cosines = (1.0 - distances[:, 1:]).flatten()
+        # Exclude first column (self-match, distance ≈ 0).
+        # Clip to [-1, 1]: float32 rounding on near-identical vectors can produce
+        # distances slightly below 0, yielding cosines just above 1.0.
+        neighbor_cosines = np.clip(1.0 - distances[:, 1:], -1.0, 1.0).flatten()
 
-        # Derive thresholds (LLD §3 Stage 0.5)
-        dedup = float(np.percentile(neighbor_cosines, 99.5))
-        contradiction = float(np.percentile(neighbor_cosines, 90.0))
-        density = float(np.median(neighbor_cosines))
+        # Derive thresholds using gap-based formulas (formula_version=2).
+        # See module docstring for the full rationale.
+        baseline_p95 = float(np.percentile(baseline_cosines, 95))
+        nbr_p50 = float(np.percentile(neighbor_cosines, 50))
+        nbr_p99 = float(np.percentile(neighbor_cosines, 99))
+
+        gap = nbr_p50 - baseline_p95
+        spread = nbr_p99 - nbr_p50
+        contradiction = baseline_p95 + 0.5 * gap
+        dedup = nbr_p99 - 0.1 * spread
+        density = nbr_p50
+
+        # Sanity check: thresholds must be strictly ordered and below 1.0.
+        # A failure means the distribution is degenerate (all-identical embeddings,
+        # un-normalised vectors, etc.). Fall back to model_defaults so downstream
+        # stages are not silenced.
+        if not (baseline_p95 < contradiction < dedup < 1.0):
+            log.warning(
+                "calibration_hnsw_degenerate_fallback",
+                baseline_p95=round(baseline_p95, 4),
+                contradiction_computed=round(contradiction, 4),
+                dedup_computed=round(dedup, 4),
+                action="falling_back_to_model_defaults",
+            )
+            dedup, contradiction, density = _model_defaults(dim)
 
         distributions = {
             "method": "hnsw",
+            "formula_version": 2,
             "dim": dim,
             "corpus_size": corpus_size,
             "sample_size": N,
             "baseline_p50": float(np.median(baseline_cosines)),
-            "baseline_p95": float(np.percentile(baseline_cosines, 95)),
-            "neighbor_p50": density,
-            "neighbor_p90": contradiction,
-            "neighbor_p995": dedup,
+            "baseline_p95": baseline_p95,
+            "neighbor_p50": nbr_p50,
+            "neighbor_p99": nbr_p99,
+            "gap": round(gap, 4),
+            "spread": round(spread, 4),
         }
         self._persist(
             scan_run_id,
@@ -237,9 +282,12 @@ class CalibrateStage:
             method="hnsw",
             corpus_size=corpus_size,
             sample_size=N,
-            dedup_cosine_threshold=dedup,
-            contradiction_candidate_threshold=contradiction,
-            cluster_min_density=density,
+            baseline_p95=round(baseline_p95, 4),
+            gap=round(gap, 4),
+            spread=round(spread, 4),
+            dedup_cosine_threshold=round(dedup, 4),
+            contradiction_candidate_threshold=round(contradiction, 4),
+            cluster_min_density=round(density, 4),
         )
         return self._as_dict(dedup, contradiction, density)
 

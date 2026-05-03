@@ -277,7 +277,9 @@ def test_contradictions_with_manual_entry(tmp_path):
     conn.close()
 
 
-def test_contradictions_excludes_resolved(tmp_path):
+def test_contradictions_includes_resolved_with_resolution_field(tmp_path):
+    # Report is a full snapshot: resolved contradictions are included with their
+    # user_resolution state at report-generation time (not filtered out).
     conn, data_dir = _setup(tmp_path)
     conn.execute(
         "INSERT INTO contradictions "
@@ -288,7 +290,8 @@ def test_contradictions_excludes_resolved(tmp_path):
     )
     out = ReportStage(conn=conn, data_dir=data_dir, run_id=RUN_ID).run()
     doc = json.loads(out.read_text())
-    assert doc["contradictions"] == []
+    assert len(doc["contradictions"]) == 1
+    assert doc["contradictions"][0]["user_resolution"] == "not_a_contradiction"
     conn.close()
 
 

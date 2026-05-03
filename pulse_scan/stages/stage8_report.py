@@ -3,10 +3,10 @@
 Reads finalized DuckDB state and writes a structured JSON report to
 <data_dir>/report-<run_id>.json.
 
-The report covers the four active detection channels: embedding-channel dedup,
-clustering, NLI contradictions, and staleness scoring.  Text-channel dedup and
-numeric/version detectors (Step 9) will add a second pass to the same file once
-they exist — hence "Stage 6, half".
+The report is a point-in-time snapshot of the scan. All contradictions from the
+scan are included with their resolution state at report-generation time; any
+reviews made in the dashboard after the scan are reflected in DuckDB (the live
+source of truth) but not back-propagated into this file.
 """
 
 import json
@@ -155,7 +155,7 @@ class ReportStage:
             "SELECT chunk_a, chunk_b, detector, raw_score, calibrated_confidence, "
             "       calibration_state, direction, user_resolution "
             "FROM contradictions "
-            "WHERE scan_run_id = ? AND user_resolution IS NULL "
+            "WHERE scan_run_id = ? "
             "ORDER BY chunk_a, chunk_b",
             [self.run_id],
         ).fetchall()
@@ -173,7 +173,7 @@ class ReportStage:
         chunk_map = {r[0]: (r[1], r[2]) for r in chunk_rows}
 
         result = []
-        for chunk_a, chunk_b, detector, raw_score, cal_conf, cal_state, direction, _ in rows:
+        for chunk_a, chunk_b, detector, raw_score, cal_conf, cal_state, direction, user_res in rows:
             result.append(
                 {
                     "chunk_a_id": chunk_a,
@@ -187,6 +187,7 @@ class ReportStage:
                     "calibrated_confidence": cal_conf,
                     "calibration_state": cal_state,
                     "direction": direction,
+                    "user_resolution": user_res,
                 }
             )
         return result

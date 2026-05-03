@@ -105,27 +105,7 @@ cp pulse.config.yaml.example pulse.config.yaml
 ```
 
 Edit `pulse.config.yaml` — set your vector store connection, collections, and device:
-
-```yaml
-store:
-  type: chroma
-  connection:
-    host: localhost
-    port: 8010
-
-collections:       # optional, if custom half life is needed
-  - name: docs
-    timestamp_field: created_at
-    half_life_days: 90
-  - name: pricing
-    timestamp_field: createdAt
-    half_life_days: 18       # pricing content decays faster
-
-inference:
-  device: cuda    # or: mps (Apple Silicon)
-```
-
-See `pulse.config.yaml.example` for the full reference.
+- See `pulse.config.yaml.example` for the full reference.
 
 ### Run a scan
 

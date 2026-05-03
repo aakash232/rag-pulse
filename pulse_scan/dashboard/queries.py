@@ -42,7 +42,13 @@ def get_corpus_overview(conn: duckdb.DuckDBPyConnection) -> dict:
     active = conn.execute("SELECT COUNT(*) FROM chunks WHERE deleted_at IS NULL").fetchone()[0]
     deleted = total - active
     n_groups = conn.execute("SELECT COUNT(*) FROM dedup_groups").fetchone()[0]
-    n_contra = conn.execute("SELECT COUNT(*) FROM contradictions WHERE user_resolution IS NULL").fetchone()[0]
+    n_contra = conn.execute(
+        "SELECT COUNT(*) FROM ("
+        "  SELECT LEAST(chunk_a, chunk_b), GREATEST(chunk_a, chunk_b)"
+        "  FROM contradictions WHERE user_resolution IS NULL"
+        "  GROUP BY LEAST(chunk_a, chunk_b), GREATEST(chunk_a, chunk_b)"
+        ")"
+    ).fetchone()[0]
     collections = conn.execute(
         "SELECT collection, COUNT(*) AS n FROM chunks WHERE deleted_at IS NULL GROUP BY collection ORDER BY collection"
     ).fetchall()
@@ -184,80 +190,108 @@ def get_dedup_groups(
 def get_contradictions_count(
     conn: duckdb.DuckDBPyConnection,
     run_id: Optional[str] = None,
-    unresolved_only: bool = True,
+    resolution: Optional[str] = "unresolved",
     detector: Optional[str] = None,
 ) -> int:
+    # Counts unique canonical chunk pairs, not rows.
+    # The same pair can be flagged by multiple detectors — that is one conflict.
+    # resolution: "unresolved" → IS NULL, "resolved" → IS NOT NULL, None → all
     conditions: list[str] = []
     params: list = []
     if run_id:
         conditions.append("scan_run_id = ?")
         params.append(run_id)
-    if unresolved_only:
+    if resolution == "unresolved":
         conditions.append("user_resolution IS NULL")
+    elif resolution == "resolved":
+        conditions.append("user_resolution IS NOT NULL")
     if detector and detector != "all":
         conditions.append("detector = ?")
         params.append(detector)
     where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
-    return conn.execute(f"SELECT COUNT(*) FROM contradictions {where}", params).fetchone()[0]
+    return conn.execute(
+        f"SELECT COUNT(*) FROM ("
+        f"  SELECT LEAST(chunk_a, chunk_b), GREATEST(chunk_a, chunk_b)"
+        f"  FROM contradictions {where}"
+        f"  GROUP BY LEAST(chunk_a, chunk_b), GREATEST(chunk_a, chunk_b)"
+        f")",
+        params,
+    ).fetchone()[0]
 
 
 def get_contradictions(
     conn: duckdb.DuckDBPyConnection,
     run_id: Optional[str] = None,
-    unresolved_only: bool = True,
+    resolution: Optional[str] = "unresolved",
     detector: Optional[str] = None,
     limit: Optional[int] = None,
     offset: int = 0,
 ) -> list[dict]:
-    conditions = []
+    # Returns one entry per canonical chunk pair (LEAST/GREATEST), aggregating
+    # all detector signals for that pair. A pair flagged by numeric + version +
+    # NLI is one conflict, not three.
+    # resolution: "unresolved" → IS NULL, "resolved" → IS NOT NULL, None → all
+    # The detector filter uses HAVING (not WHERE) so that all detectors' scores
+    # remain visible for filtered pairs — WHERE would drop non-matching rows
+    # before aggregation, hiding e.g. nli_score for a pair also caught by version.
+    conditions: list[str] = []
     params: list = []
     if run_id:
         conditions.append("c.scan_run_id = ?")
         params.append(run_id)
-    if unresolved_only:
+    if resolution == "unresolved":
         conditions.append("c.user_resolution IS NULL")
-    if detector and detector != "all":
-        conditions.append("c.detector = ?")
-        params.append(detector)
+    elif resolution == "resolved":
+        conditions.append("c.user_resolution IS NOT NULL")
     where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+
+    having = ""
+    if detector and detector != "all":
+        having = "HAVING SUM(CASE WHEN c.detector = ? THEN 1 ELSE 0 END) > 0"
+        params.append(detector)
+
     pagination = f" LIMIT {int(limit)} OFFSET {int(offset)}" if limit is not None else ""
     rows = conn.execute(
-        f"""SELECT c.chunk_a, c.chunk_b, c.detector, c.raw_score,
-                   c.calibration_state, c.direction, c.user_resolution,
-                   c.scan_run_id,
-                   ca.text AS text_a, cb.text AS text_b,
-                   ca.collection AS col_a, cb.collection AS col_b
+        f"""SELECT
+                LEAST(c.chunk_a, c.chunk_b)  AS chunk_a,
+                GREATEST(c.chunk_a, c.chunk_b) AS chunk_b,
+                STRING_AGG(DISTINCT c.detector, ',') AS detectors,
+                MAX(CASE WHEN c.detector = 'nli'     THEN c.raw_score  END) AS nli_score,
+                MAX(CASE WHEN c.detector = 'nli'     THEN c.direction  END) AS nli_direction,
+                MAX(CASE WHEN c.detector = 'numeric' THEN c.raw_score  END) AS numeric_score,
+                MAX(CASE WHEN c.detector = 'version' THEN c.raw_score  END) AS version_score,
+                MAX(c.user_resolution)  AS user_resolution,
+                MAX(c.scan_run_id)      AS scan_run_id,
+                MAX(ca.text)            AS text_a,
+                MAX(cb.text)            AS text_b,
+                MAX(ca.collection)      AS col_a,
+                MAX(cb.collection)      AS col_b,
+                MAX(c.raw_score)        AS max_score
             FROM contradictions c
-            LEFT JOIN chunks ca ON ca.chunk_id = c.chunk_a
-            LEFT JOIN chunks cb ON cb.chunk_id = c.chunk_b
+            LEFT JOIN chunks ca ON ca.chunk_id = LEAST(c.chunk_a, c.chunk_b)
+            LEFT JOIN chunks cb ON cb.chunk_id = GREATEST(c.chunk_a, c.chunk_b)
             {where}
-            ORDER BY c.raw_score DESC{pagination}""",
+            GROUP BY LEAST(c.chunk_a, c.chunk_b), GREATEST(c.chunk_a, c.chunk_b)
+            {having}
+            ORDER BY max_score DESC{pagination}""",
         params,
     ).fetchall()
     result = []
     for row in rows:
         (
-            chunk_a,
-            chunk_b,
-            detector_,
-            score,
-            cal_state,
-            direction,
-            user_res,
-            run,
-            text_a,
-            text_b,
-            col_a,
-            col_b,
+            chunk_a, chunk_b, detectors_str,
+            nli_score, nli_dir, numeric_score, version_score,
+            user_res, run, text_a, text_b, col_a, col_b, _,
         ) = row
         result.append(
             {
                 "chunk_a": chunk_a,
                 "chunk_b": chunk_b,
-                "detector": detector_,
-                "raw_score": round(score, 4) if score else None,
-                "calibration_state": cal_state,
-                "direction": direction,
+                "detectors": detectors_str.split(",") if detectors_str else [],
+                "nli_score": round(nli_score, 4) if nli_score is not None else None,
+                "nli_direction": nli_dir,
+                "numeric_score": round(numeric_score, 4) if numeric_score is not None else None,
+                "has_version": version_score is not None,
                 "user_resolution": user_res,
                 "scan_run_id": run,
                 "text_a": text_a or "",
@@ -307,7 +341,16 @@ def resolve_contradiction(
 
 
 def get_resolution_summary(conn: duckdb.DuckDBPyConnection) -> dict:
-    rows = conn.execute("SELECT user_resolution, COUNT(*) FROM contradictions GROUP BY user_resolution").fetchall()
+    # Count logical pairs, not rows. NLI stores both directions as separate rows
+    # (scores differ per direction); resolve_contradiction updates both. Counting
+    # distinct canonical pairs avoids showing +2 when one NLI pair is reviewed.
+    rows = conn.execute(
+        "SELECT user_resolution, COUNT(*) FROM ("
+        "  SELECT user_resolution, LEAST(chunk_a, chunk_b), GREATEST(chunk_a, chunk_b)"
+        "  FROM contradictions"
+        "  GROUP BY user_resolution, LEAST(chunk_a, chunk_b), GREATEST(chunk_a, chunk_b)"
+        ") GROUP BY user_resolution"
+    ).fetchall()
     summary = {"confirmed": 0, "false_positive": 0, "unresolved": 0}
     for res, n in rows:
         if res is None:

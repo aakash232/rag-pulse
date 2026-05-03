@@ -3,6 +3,8 @@
 import json
 from datetime import datetime, timezone
 
+import pytest
+
 from pulse_scan.dashboard.queries import (
     get_available_runs,
     get_contradictions,
@@ -267,7 +269,7 @@ def test_get_contradictions_unresolved_only(tmp_path):
     _insert_contradiction(conn, "a", "b", resolution=None)
     _insert_contradiction(conn, "a", "c", resolution="confirmed")
 
-    result = get_contradictions(conn, unresolved_only=True)
+    result = get_contradictions(conn, resolution="unresolved")
     assert len(result) == 1
     assert result[0]["chunk_a"] == "a"
     assert result[0]["chunk_b"] == "b"
@@ -280,7 +282,7 @@ def test_get_contradictions_all_including_resolved(tmp_path):
     _insert_chunk(conn, "b")
     _insert_contradiction(conn, "a", "b", resolution="confirmed")
 
-    result = get_contradictions(conn, unresolved_only=False)
+    result = get_contradictions(conn, resolution=None)
     assert len(result) == 1
     conn.close()
 
@@ -294,9 +296,30 @@ def test_get_contradictions_detector_filter(tmp_path):
     _insert_chunk(conn, "c")
     _insert_contradiction(conn, "a", "c", detector="numeric")
 
-    nli_only = get_contradictions(conn, unresolved_only=False, detector="nli")
-    assert all(r["detector"] == "nli" for r in nli_only)
+    nli_only = get_contradictions(conn, resolution=None, detector="nli")
     assert len(nli_only) == 1
+    assert "nli" in nli_only[0]["detectors"]
+    assert "numeric" not in nli_only[0]["detectors"]
+    conn.close()
+
+
+def test_get_contradictions_detector_filter_preserves_all_signals(tmp_path):
+    # A pair caught by both nli + version: filtering to "version" must still
+    # show nli_score (HAVING filter, not WHERE filter on raw rows).
+    conn = open_db(tmp_path)
+    _insert_chunk(conn, "a")
+    _insert_chunk(conn, "b")
+    _insert_contradiction(conn, "a", "b", detector="nli", score=0.88)
+    _insert_contradiction(conn, "a", "b", detector="version", score=0.5)
+
+    version_filtered = get_contradictions(conn, resolution=None, detector="version")
+    assert len(version_filtered) == 1
+    pair = version_filtered[0]
+    # Both detectors must appear in the list
+    assert "nli" in pair["detectors"]
+    assert "version" in pair["detectors"]
+    # NLI score must still be present, not NULLed out by row-level filtering
+    assert pair["nli_score"] == pytest.approx(0.88, abs=1e-3)
     conn.close()
 
 
@@ -308,7 +331,7 @@ def test_get_contradictions_run_id_filter(tmp_path):
     _insert_contradiction(conn, "a", "b", run_id="run-A")
     _insert_contradiction(conn, "a", "c", run_id="run-B")
 
-    result = get_contradictions(conn, run_id="run-A", unresolved_only=False)
+    result = get_contradictions(conn, run_id="run-A", resolution=None)
     assert len(result) == 1
     assert result[0]["scan_run_id"] == "run-A"
     conn.close()

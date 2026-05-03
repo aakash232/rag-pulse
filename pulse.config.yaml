@@ -45,7 +45,7 @@ scan:
 
 clustering:
   min_cluster_size: auto
-  use_gpu: false
+  use_gpu: true
 
 inference:
   nli_model: cross-encoder/nli-deberta-v3-base
