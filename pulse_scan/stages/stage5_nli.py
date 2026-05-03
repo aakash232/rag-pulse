@@ -1,4 +1,4 @@
-"""Stage 4: NLI Contradiction Detection (Detector A — NLI cross-encoder).
+"""Stage 5: NLI Contradiction Detection (Detector A — NLI cross-encoder).
 
 For each cluster, finds candidate pairs with cosine > contradiction_candidate_threshold
 (top-k per chunk, dedup-group pairs excluded), then runs a DeBERTa-v3-base NLI
@@ -283,7 +283,7 @@ class NLIContradictionStage:
         return float(row[0])
 
     def _get_nli_score_threshold(self) -> float:
-        from pulse_scan.stages.stage05_calibrate import load_nli_score_threshold
+        from pulse_scan.stages.stage1_calibrate import load_nli_score_threshold
 
         return load_nli_score_threshold(self.conn)
 

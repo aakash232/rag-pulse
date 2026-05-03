@@ -1,4 +1,4 @@
-"""Tests for Stage 5: Staleness Scoring."""
+"""Tests for Stage 7: Staleness Scoring."""
 
 import json
 from datetime import datetime, timedelta
@@ -11,8 +11,8 @@ from pulse_scan.adapters.fixture import LocalFixtureAdapter
 from pulse_scan.config import CollectionConfig, PulseConfig, StoreConfig
 from pulse_scan.db.schema import open_db
 from pulse_scan.stages.stage0_ingest import IngestStage
-from pulse_scan.stages.stage05_calibrate import CalibrateStage
-from pulse_scan.stages.stage5_staleness import (
+from pulse_scan.stages.stage1_calibrate import CalibrateStage
+from pulse_scan.stages.stage7_staleness import (
     DEFAULT_HALF_LIFE_DAYS,
     StalenessStage,
     _age_decay,
@@ -318,7 +318,7 @@ def test_contradicted_chunk_scores_higher(tmp_path):
 
 
 def test_staleness_components_json_has_all_keys(tmp_path):
-    """staleness_components JSON includes all five expected component keys."""
+    """staleness_components JSON includes all four expected component keys."""
     corpus_dir = tmp_path / "corpus"
     corpus_dir.mkdir()
     data_dir = tmp_path / "data"
@@ -343,7 +343,6 @@ def test_staleness_components_json_has_all_keys(tmp_path):
         "cluster_drift",
         "contradiction_evidence",
         "supersession_evidence",
-        "retrieval_abandonment",
     }
     for (comp_json,) in rows:
         components = json.loads(comp_json)

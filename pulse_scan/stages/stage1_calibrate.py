@@ -1,4 +1,4 @@
-"""Stage 0.5: Calibration.
+"""Stage 1: Calibration.
 
 Computes per-corpus cosine similarity thresholds before any thresholded
 operation runs. Without this, dedup and contradiction detection use

@@ -1,4 +1,4 @@
-"""Tests for Stage 2: UMAP + HDBSCAN clustering."""
+"""Tests for Stage 3: UMAP + HDBSCAN clustering."""
 
 import json
 from pathlib import Path
@@ -9,8 +9,8 @@ from pulse_scan.adapters.fixture import LocalFixtureAdapter
 from pulse_scan.config import ClusteringConfig, CollectionConfig, PulseConfig, StoreConfig
 from pulse_scan.db.schema import open_db
 from pulse_scan.stages.stage0_ingest import IngestStage
-from pulse_scan.stages.stage05_calibrate import CalibrateStage
-from pulse_scan.stages.stage2_cluster import ClusterStage, _min_cluster_size_auto
+from pulse_scan.stages.stage1_calibrate import CalibrateStage
+from pulse_scan.stages.stage3_cluster import ClusterStage, _min_cluster_size_auto
 
 # ---------------------------------------------------------------------------
 # Helpers

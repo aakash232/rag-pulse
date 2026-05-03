@@ -1,4 +1,4 @@
-"""Tests for Stage 4: NLI Contradiction Detection (Detector A)."""
+"""Tests for Stage 5: NLI Contradiction Detection (Detector A)."""
 
 import json
 from pathlib import Path
@@ -10,9 +10,9 @@ from pulse_scan.adapters.fixture import LocalFixtureAdapter
 from pulse_scan.config import ClusteringConfig, CollectionConfig, PulseConfig, StoreConfig
 from pulse_scan.db.schema import open_db
 from pulse_scan.stages.stage0_ingest import IngestStage
-from pulse_scan.stages.stage05_calibrate import CalibrateStage
-from pulse_scan.stages.stage2_cluster import ClusterStage
-from pulse_scan.stages.stage4_nli import NLIContradictionStage
+from pulse_scan.stages.stage1_calibrate import CalibrateStage
+from pulse_scan.stages.stage3_cluster import ClusterStage
+from pulse_scan.stages.stage5_nli import NLIContradictionStage
 
 # ---------------------------------------------------------------------------
 # Mock predict functions

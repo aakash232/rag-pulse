@@ -1,4 +1,4 @@
-"""Stage 2: Clustering — UMAP dimensionality reduction + HDBSCAN.
+"""Stage 3: Clustering — UMAP dimensionality reduction + HDBSCAN.
 
 Reduces chunk embeddings to 50d via UMAP, then clusters with HDBSCAN.
 Chunks labeled -1 (noise) get cluster_id = NULL in the chunks table and

@@ -1,4 +1,4 @@
-"""Stage 6: JSON Report.
+"""Stage 8: JSON Report.
 
 Reads finalized DuckDB state and writes a structured JSON report to
 <data_dir>/report-<run_id>.json.

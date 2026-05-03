@@ -1,4 +1,4 @@
-"""Stage 3: Triage with cost budget.
+"""Stage 4: Triage with cost budget.
 
 Scores every clustered chunk by priority and selects the top-N chunks whose
 NLI candidate pairs fit within the cost_budget (1 NLI pair = 1 cost unit,

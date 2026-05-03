@@ -152,7 +152,6 @@ def test_staleness_label_counts(tmp_path):
             "cluster_drift": 0,
             "contradiction_evidence": 0,
             "supersession_evidence": 0,
-            "retrieval_abandonment": 0,
         },
     )
     _insert_chunk(
@@ -165,7 +164,6 @@ def test_staleness_label_counts(tmp_path):
             "cluster_drift": 0,
             "contradiction_evidence": 0,
             "supersession_evidence": 0,
-            "retrieval_abandonment": 0,
         },
     )
     _insert_chunk(
@@ -178,7 +176,6 @@ def test_staleness_label_counts(tmp_path):
             "cluster_drift": 0,
             "contradiction_evidence": 0,
             "supersession_evidence": 0,
-            "retrieval_abandonment": 0,
         },
     )
     counts = get_staleness_label_counts(conn)

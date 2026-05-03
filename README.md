@@ -46,13 +46,14 @@ The scan pipeline runs in seven stages:
         ▼
 ┌─────────────────────────────────────┐
 │  Stage 0    Ingestion + cache       │  fetch chunks → DuckDB + numpy memmap
-│  Stage 0.5  Calibration            │  fit per-corpus cosine thresholds (HNSW)
-│  Stage 1    Deduplication          │  MinHash+LSH (text) + HNSW (embedding)
-│  Stage 2    Clustering             │  UMAP → HDBSCAN → cluster assignments
-│  Stage 3    Triage                 │  cost-budgeted priority queue
-│  Stage 4    Contradiction detect.  │  NLI + numeric + version detectors (GPU)
-│  Stage 5    Staleness scoring      │  Grofsky half-life + cluster drift
-│  Stage 6    Report + Dashboard     │  JSON/Parquet + Streamlit
+│  Stage 1    Calibration            │  fit per-corpus cosine thresholds (HNSW)
+│  Stage 2    Deduplication          │  MinHash+LSH (text) + HNSW (embedding)
+│  Stage 3    Clustering             │  UMAP → HDBSCAN → cluster assignments
+│  Stage 4    Triage                 │  cost-budgeted priority queue
+│  Stage 5    NLI contradiction      │  DeBERTa-v3 cross-encoder (GPU)
+│  Stage 6    Regex detectors        │  numeric + version contradictions
+│  Stage 7    Staleness scoring      │  Grofsky half-life + cluster drift
+│  Stage 8    Report + Dashboard     │  JSON/Parquet + Streamlit
 └─────────────────────────────────────┘
         │
         ▼
@@ -69,7 +70,7 @@ The scan pipeline runs in seven stages:
 - **Numeric** — `2.4%` vs `2.9%`, `$5` vs `$8`, conflicting rate limits or thresholds
 - **Version** — `package@1.2.3` vs `package@2.0.0` in similar context
 
-**Calibration is per-corpus, not hardcoded.** A cosine of 0.85 means "near-duplicate" for one embedding model and "vaguely related" for another. Stage 0.5 fits thresholds to your actual similarity distribution before any thresholded operation runs. Contradiction confidence calibration emerges from your own approve/reject feedback in the dashboard — no seed labels shipped, no onboarding tax.
+**Calibration is per-corpus, not hardcoded.** A cosine of 0.85 means "near-duplicate" for one embedding model and "vaguely related" for another. Stage 1 fits thresholds to your actual similarity distribution before any thresholded operation runs. Contradiction confidence calibration emerges from your own approve/reject feedback in the dashboard — no seed labels shipped, no onboarding tax.
 
 **Scans are incremental.** After the first run, only changed or new chunks are processed. The control plane persists between scans; chunks deferred by the triage budget are prioritized next run.
 
@@ -204,15 +205,15 @@ The dashboard and JSON reports display chunk text in plain form. **Do not run pu
 All core stages are complete. The final step (AWS ECS deployment scripts) is in progress.
 
 1. [x] Fixture adapter + Stage 0 ingestion + DuckDB schema
-2. [x] Synthetic 50-chunk benchmark corpus
-3. [x] Calibration (Stage 0.5)
-4. [x] Embedding-channel dedup (Stage 1, half)
-5. [x] Clustering (Stage 2)
-6. [x] NLI contradiction detection (Stage 4, one detector)
-7. [x] Staleness scoring (Stage 5)
-8. [x] JSON report (Stage 6, half)
-9. [x] Text-channel dedup, numeric/version detectors
-10. [x] Triage with cost budget (Stage 3)
+2. [x] Synthetic 50-chunk fixtures corpus
+3. [x] Calibration (Stage 1)
+4. [x] Embedding-channel dedup (Stage 2, half)
+5. [x] Clustering (Stage 3)
+6. [x] Triage with cost budget (Stage 4)
+7. [x] NLI contradiction detection (Stage 5)
+8. [x] Numeric/version detectors (Stage 6)
+9. [x] Staleness scoring (Stage 7)
+10. [x] JSON report (Stage 8)
 11. [x] Streamlit dashboard with calibration loop
 12. [x] Chroma adapter
 13. [ ] AWS ECS deployment scripts

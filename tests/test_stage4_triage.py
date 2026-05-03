@@ -1,4 +1,4 @@
-"""Tests for Stage 3: Triage with cost budget."""
+"""Tests for Stage 4: Triage with cost budget."""
 
 import json
 from datetime import datetime
@@ -7,7 +7,7 @@ import pytest
 
 from pulse_scan.config import CollectionConfig, ScanConfig
 from pulse_scan.db.schema import open_db
-from pulse_scan.stages.stage3_triage import TriageStage, _age_factor
+from pulse_scan.stages.stage4_triage import TriageStage, _age_factor
 
 REF_TIME = datetime(2024, 6, 1, 0, 0, 0)
 DUMMY_CENTROID = b"\x00" * 16  # placeholder blob for cluster_centroids.centroid

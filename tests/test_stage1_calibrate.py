@@ -1,4 +1,4 @@
-"""Tests for Stage 0.5: Calibration."""
+"""Tests for Stage 1: Calibration."""
 
 import json
 from pathlib import Path
@@ -10,7 +10,7 @@ from pulse_scan.adapters.fixture import LocalFixtureAdapter
 from pulse_scan.config import CollectionConfig, PulseConfig, StoreConfig
 from pulse_scan.db.schema import open_db
 from pulse_scan.stages.stage0_ingest import IngestStage
-from pulse_scan.stages.stage05_calibrate import (
+from pulse_scan.stages.stage1_calibrate import (
     CalibrateStage,
     _model_defaults,
     load_latest_calibration,

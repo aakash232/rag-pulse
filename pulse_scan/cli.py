@@ -106,8 +106,8 @@ def scan(
     stage0 = IngestStage(conn=conn, adapter=adapter, config=cfg, data_dir=data_dir)
     stats = stage0.run(run_id=run_id)
 
-    # Stage 0.5: Calibrate (if needed)
-    from pulse_scan.stages.stage05_calibrate import (
+    # Stage 1: Calibrate (if needed)
+    from pulse_scan.stages.stage1_calibrate import (
         CalibrateStage,
         load_latest_calibration,
         retune_nli_threshold,
@@ -120,23 +120,22 @@ def scan(
         thresholds = load_latest_calibration(conn)
         log.info("calibration_skipped_using_cached", thresholds=thresholds)
 
-    # Always retune the NLI threshold from accumulated user labels — cheap
-    # (O(n_labels) F0.5 sweep) and separate from cosine-distribution calibration.
+    # Always retune the NLI threshold from accumulated user labels. Cheap O(n_labels) F0.5 sweep
     thresholds["nli_score_threshold"] = retune_nli_threshold(conn)
 
-    # Stage 1: Embedding-channel dedup
-    from pulse_scan.stages.stage1_dedup import DeduplicateStage, TextDeduplicateStage
+    # Stage 2: Embedding-channel dedup
+    from pulse_scan.stages.stage2_dedup import DeduplicateStage, TextDeduplicateStage
 
     dedup_stats = DeduplicateStage(conn=conn, data_dir=data_dir).run()
     text_dedup_stats = TextDeduplicateStage(conn=conn).run()
 
-    # Stage 2: Clustering (UMAP + HDBSCAN)
-    from pulse_scan.stages.stage2_cluster import ClusterStage
+    # Stage 3: Clustering (UMAP + HDBSCAN)
+    from pulse_scan.stages.stage3_cluster import ClusterStage
 
     cluster_stats = ClusterStage(conn=conn, data_dir=data_dir, clustering_config=cfg.clustering).run()
 
-    # Stage 3: Triage — select which chunks get NLI budget
-    from pulse_scan.stages.stage3_triage import TriageStage
+    # Stage 4: Triage — select which chunks get NLI budget
+    from pulse_scan.stages.stage4_triage import TriageStage
 
     allowed_chunk_ids, triage_stats = TriageStage(
         conn=conn,
@@ -145,8 +144,8 @@ def scan(
         collection_configs=cfg.collections,
     ).run()
 
-    # Stage 4: NLI contradiction detection (Detector A)
-    from pulse_scan.stages.stage4_nli import NLIContradictionStage
+    # Stage 5: NLI contradiction detection
+    from pulse_scan.stages.stage5_nli import NLIContradictionStage
 
     nli_stats = NLIContradictionStage(
         conn=conn,
@@ -156,8 +155,8 @@ def scan(
         scan_config=cfg.scan,
     ).run(allowed_chunk_ids=allowed_chunk_ids)
 
-    # Stage 9 detectors: numeric + version
-    from pulse_scan.stages.stage9_detectors import (
+    # Stage 6: Regex detectors (numeric + version)
+    from pulse_scan.stages.stage6_detectors import (
         NumericContradictionDetector,
         VersionContradictionDetector,
     )
@@ -169,8 +168,8 @@ def scan(
     if cfg.scan.enable_version_detector:
         version_stats = VersionContradictionDetector(conn=conn, scan_run_id=run_id).run()
 
-    # Stage 5: Staleness scoring
-    from pulse_scan.stages.stage5_staleness import StalenessStage
+    # Stage 7: Staleness scoring
+    from pulse_scan.stages.stage7_staleness import StalenessStage
 
     staleness_stats = StalenessStage(
         conn=conn,
@@ -178,8 +177,8 @@ def scan(
         collection_configs=cfg.collections,
     ).run()
 
-    # Stage 6: JSON report
-    from pulse_scan.stages.stage6_report import ReportStage
+    # Stage 8: JSON report
+    from pulse_scan.stages.stage8_report import ReportStage
 
     report_path = ReportStage(
         conn=conn,
@@ -271,7 +270,7 @@ def calibrate(
 ) -> None:
     """Force re-run calibration against the current corpus."""
     from pulse_scan.db.schema import open_db
-    from pulse_scan.stages.stage05_calibrate import CalibrateStage, retune_nli_threshold
+    from pulse_scan.stages.stage1_calibrate import CalibrateStage, retune_nli_threshold
 
     conn = open_db(data_dir)
     run_id = str(uuid.uuid4())

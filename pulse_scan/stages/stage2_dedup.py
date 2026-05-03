@@ -1,4 +1,4 @@
-"""Stage 1: Deduplication — embedding channel + text channel.
+"""Stage 2: Deduplication — embedding channel + text channel.
 
 Embedding channel: builds an in-memory HNSW index, queries k=10 nearest
 neighbors, groups pairs above the calibrated dedup_cosine_threshold via

@@ -1,4 +1,4 @@
-"""Stage 9 detectors: Numeric and Version contradiction detection.
+"""Stage 6: Numeric and Version contradiction detection.
 
 Both detectors scan pairs of chunks within the same cluster for two specific
 contradiction patterns:

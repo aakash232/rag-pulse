@@ -1,4 +1,4 @@
-"""Smoke tests for the 50-chunk benchmark corpus."""
+"""Smoke tests for the 50-chunk fixtures corpus."""
 
 import json
 from pathlib import Path
@@ -6,7 +6,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-CORPUS_DIR = Path(__file__).parent.parent / "benchmark" / "corpus"
+CORPUS_DIR = Path(__file__).parent.parent / "fixtures" / "corpus"
 DIM = 384
 
 

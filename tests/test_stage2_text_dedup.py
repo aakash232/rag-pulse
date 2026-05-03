@@ -1,4 +1,4 @@
-"""Tests for Stage 9 text-channel dedup (TextDeduplicateStage)."""
+"""Tests for Stage 2 text-channel dedup (TextDeduplicateStage)."""
 
 import json
 from pathlib import Path
@@ -9,8 +9,8 @@ from pulse_scan.adapters.fixture import LocalFixtureAdapter
 from pulse_scan.config import CollectionConfig, PulseConfig, StoreConfig
 from pulse_scan.db.schema import open_db
 from pulse_scan.stages.stage0_ingest import IngestStage
-from pulse_scan.stages.stage05_calibrate import CalibrateStage
-from pulse_scan.stages.stage1_dedup import DeduplicateStage, TextDeduplicateStage
+from pulse_scan.stages.stage1_calibrate import CalibrateStage
+from pulse_scan.stages.stage2_dedup import DeduplicateStage, TextDeduplicateStage
 
 DIM = 8
 RUN_ID = "run-text-dedup"

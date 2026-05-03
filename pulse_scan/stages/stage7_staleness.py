@@ -1,5 +1,5 @@
-"""Stage 5: Staleness Scoring.
-Based on: https://arxiv.org/pdf/2509.19376
+"""Stage 7: Staleness Scoring.
+Inspired by: https://arxiv.org/pdf/2509.19376
 
 Computes a continuous staleness score in [0, 1] for every active chunk by
 combining four available signals:
@@ -8,8 +8,6 @@ combining four available signals:
             + w_drift * cluster_drift
             + w_contra * contradiction_evidence
             + w_super  * supersession_evidence
-
-(retrieval_abandonment is stubbed at 0.0 — retrieval logs are out of scope for v1)
 
 Labels:  fresh < 0.3  |  aging 0.3–0.6  |  stale 0.6–0.85  |  abandoned > 0.85
 
@@ -62,7 +60,7 @@ def _cluster_drift(embedding: np.ndarray, cluster_id, centroids: dict) -> float:
 
 
 def _contradiction_evidence(chunk_id: str, counts: dict) -> float:
-    """min(1, count / 3) — saturates at 3 unresolved contradictions."""
+    """min(1, count / 3) — saturates at 3 unresolved or confirmed contradictions."""
     n = counts.get(chunk_id, 0)
     return min(1.0, n / 3.0)
 
@@ -132,8 +130,8 @@ class StalenessStage:
         superseded = self._load_superseded_ids()
         half_lives = {c.name: c.half_life_days for c in self._collection_configs}
 
-        n_scored = 0
         label_counts: dict[str, int] = {}
+        updates: list[list] = []
 
         for i, (chunk_id, collection, resolved_ts, cluster_id, _) in enumerate(rows):
             half_life = half_lives.get(collection, DEFAULT_HALF_LIFE_DAYS)
@@ -152,18 +150,19 @@ class StalenessStage:
                 "cluster_drift": round(cd, 4),
                 "contradiction_evidence": round(ce, 4),
                 "supersession_evidence": round(se, 4),
-                "retrieval_abandonment": 0.0,  # v1 stub: no retrieval logs available
             }
 
-            self.conn.execute(
-                "UPDATE chunks "
-                "SET staleness_score = ?, staleness_label = ?, staleness_components = ? "
-                "WHERE chunk_id = ? AND deleted_at IS NULL",
-                [score, label, json.dumps(components), chunk_id],
-            )
+            updates.append([score, label, json.dumps(components), chunk_id])
             label_counts[label] = label_counts.get(label, 0) + 1
-            n_scored += 1
 
+        self.conn.executemany(
+            "UPDATE chunks "
+            "SET staleness_score = ?, staleness_label = ?, staleness_components = ? "
+            "WHERE chunk_id = ? AND deleted_at IS NULL",
+            updates,
+        )
+
+        n_scored = len(updates)
         log.info("staleness_complete", chunks_scored=n_scored, **label_counts)
         return {"chunks_scored": n_scored, "label_counts": label_counts}
 
@@ -186,9 +185,11 @@ class StalenessStage:
         rows = self.conn.execute(
             "SELECT chunk_id, COUNT(*) AS n "
             "FROM ("
-            "  SELECT chunk_a AS chunk_id FROM contradictions WHERE user_resolution IS NULL "
+            "  SELECT chunk_a AS chunk_id FROM contradictions "
+            "  WHERE user_resolution IS NULL OR user_resolution = 'confirmed' "
             "  UNION ALL "
-            "  SELECT chunk_b AS chunk_id FROM contradictions WHERE user_resolution IS NULL "
+            "  SELECT chunk_b AS chunk_id FROM contradictions "
+            "  WHERE user_resolution IS NULL OR user_resolution = 'confirmed' "
             ") GROUP BY chunk_id"
         ).fetchall()
         return {chunk_id: int(n) for chunk_id, n in rows}

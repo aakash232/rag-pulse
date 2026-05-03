@@ -1,4 +1,4 @@
-"""Tests for Stage 6: JSON Report."""
+"""Tests for Stage 8: JSON Report."""
 
 import json
 from datetime import datetime, timedelta
@@ -11,9 +11,9 @@ from pulse_scan.adapters.fixture import LocalFixtureAdapter
 from pulse_scan.config import CollectionConfig, PulseConfig, StoreConfig
 from pulse_scan.db.schema import open_db
 from pulse_scan.stages.stage0_ingest import IngestStage
-from pulse_scan.stages.stage05_calibrate import CalibrateStage
-from pulse_scan.stages.stage5_staleness import StalenessStage
-from pulse_scan.stages.stage6_report import ReportStage
+from pulse_scan.stages.stage1_calibrate import CalibrateStage
+from pulse_scan.stages.stage7_staleness import StalenessStage
+from pulse_scan.stages.stage8_report import ReportStage
 
 REF_TIME = datetime(2024, 6, 1, 0, 0, 0)
 RUN_ID = "test-run-0001"
@@ -224,7 +224,6 @@ def test_staleness_components_has_all_keys(tmp_path):
             "cluster_drift",
             "contradiction_evidence",
             "supersession_evidence",
-            "retrieval_abandonment",
         ):
             assert key in comp, f"missing component {key!r}"
     conn.close()
