@@ -204,7 +204,7 @@ def _render_staleness_chunk(chunk: dict) -> None:
         if chunk.get("text"):
             st.divider()
             st.markdown("**Content preview**")
-            st.caption(chunk["text"][:400])
+            st.text(chunk["text"][:400])
 
 
 def render_staleness(conn) -> None:
@@ -372,7 +372,7 @@ def _render_dup_group(g: dict) -> None:
             st.markdown(
                 f"**{m['chunk_id']}** &nbsp; `{m['collection']}` &nbsp;—&nbsp; {role} &nbsp;·&nbsp; {score_str}"
             )
-            st.caption(m["text"] or "(no text)")
+            st.text(m["text"] or "(no text)")
             st.divider()
 
 
