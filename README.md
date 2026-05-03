@@ -2,6 +2,16 @@
 
 **A read-only health scanner for RAG knowledge bases.** Connects to your vector store, analyzes the corpus, and produces a report identifying stale chunks, near-duplicates, contradictions, and superseded content — without writing a single byte back to your store.
 
+<img width="1471" height="794" alt="image" src="https://github.com/user-attachments/assets/65f0440d-2a66-4793-a96e-bbe9f28cb988" />
+
+<img width="1508" height="803" alt="image" src="https://github.com/user-attachments/assets/097fee6a-bb8b-4078-9678-19605174558f" />
+
+<img width="1506" height="831" alt="image" src="https://github.com/user-attachments/assets/e5fb771f-a410-49a7-a3ab-ed0f4fbfa9c2" />
+
+<img width="1112" height="788" alt="image" src="https://github.com/user-attachments/assets/c4c97191-9275-40e8-bfdb-0b1fcdc397a2" />
+
+
+
 ---
 
 ## The problem
