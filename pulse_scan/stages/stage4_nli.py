@@ -10,6 +10,7 @@ The predict_fn can be injected for testing to avoid loading the full model.
 """
 
 import json
+import random
 from collections import defaultdict
 from pathlib import Path
 from typing import Callable, Optional
@@ -29,8 +30,8 @@ class NLIContradictionStage:
         conn: duckdb.DuckDBPyConnection,
         data_dir: Path,
         scan_run_id: str,
-        inference_config=None,   # InferenceConfig or None
-        scan_config=None,        # ScanConfig or None
+        inference_config=None,  # InferenceConfig or None
+        scan_config=None,  # ScanConfig or None
         _predict_fn: Optional[Callable] = None,
     ):
         self.conn = conn
@@ -56,6 +57,7 @@ class NLIContradictionStage:
         nli_threshold = self._get_nli_score_threshold()
         k = self._scan_cfg.contradiction_candidates_per_chunk if self._scan_cfg else 5
         batch_size = self._scan_cfg.nli_batch_size if self._scan_cfg else 64
+        max_cluster_size = self._scan_cfg.max_nli_cluster_size if self._scan_cfg else 2000
 
         rows = self.conn.execute(
             "SELECT chunk_id, cluster_id, text, embedding_offset "
@@ -91,8 +93,15 @@ class NLIContradictionStage:
 
         dedup_pairs = self._load_dedup_pairs()
         candidate_pairs = self._find_candidates(
-            chunk_ids, cluster_ids, texts, embeddings, dedup_pairs, threshold, k,
+            chunk_ids,
+            cluster_ids,
+            texts,
+            embeddings,
+            dedup_pairs,
+            threshold,
+            k,
             allowed_query_ids=allowed_chunk_ids,
+            max_cluster_size=max_cluster_size,
         )
 
         if not candidate_pairs:
@@ -131,6 +140,7 @@ class NLIContradictionStage:
         threshold: float,
         k: int,
         allowed_query_ids: Optional[set] = None,
+        max_cluster_size: int = 2000,
     ) -> list[tuple]:
         """Return list of (id_a, text_a, id_b, text_b) unique unordered pairs.
 
@@ -148,6 +158,14 @@ class NLIContradictionStage:
         for cid, indices in cluster_to_indices.items():
             if len(indices) < 2:
                 continue
+            if len(indices) > max_cluster_size:
+                log.warning(
+                    "nli_cluster_size_capped",
+                    cluster_id=cid,
+                    original_size=len(indices),
+                    capped_to=max_cluster_size,
+                )
+                indices = random.sample(indices, max_cluster_size)
             embs = embeddings[indices]
             cosines = embs @ embs.T  # pairwise cosines (all normalized)
 
@@ -171,10 +189,14 @@ class NLIContradictionStage:
                     if pair_key in seen or pair_key in dedup_pairs:
                         continue
                     seen.add(pair_key)
-                    pairs.append((
-                        chunk_ids[global_i], texts[global_i],
-                        chunk_ids[global_j], texts[global_j],
-                    ))
+                    pairs.append(
+                        (
+                            chunk_ids[global_i],
+                            texts[global_i],
+                            chunk_ids[global_j],
+                            texts[global_j],
+                        )
+                    )
 
         return pairs
 
@@ -262,6 +284,7 @@ class NLIContradictionStage:
 
     def _get_nli_score_threshold(self) -> float:
         from pulse_scan.stages.stage05_calibrate import load_nli_score_threshold
+
         return load_nli_score_threshold(self.conn)
 
     def _get_predict_fn(self) -> Callable:
@@ -270,12 +293,8 @@ class NLIContradictionStage:
         return self._load_pipeline()
 
     def _load_pipeline(self) -> Callable:
-        model_name = (
-            self._inf_cfg.nli_model
-            if self._inf_cfg
-            else "cross-encoder/nli-deberta-v3-base"
-        )
-        device_str = self._inf_cfg.device if self._inf_cfg else "cuda"
+        model_name = self._inf_cfg.nli_model
+        device_str = self._inf_cfg.device
         if device_str == "cuda":
             device = 0
         elif device_str == "mps":
@@ -291,6 +310,18 @@ class NLIContradictionStage:
             device=device,
             top_k=None,
         )
+
+        # Fail fast if this model doesn't expose a 'contradiction' label.
+        # Standard NLI cross-encoders do; models with LABEL_0/1/2 style labels
+        # would silently return 0.0 for every pair without this check.
+        id2label: dict = pipe.model.config.id2label
+        if "contradiction" not in {v.lower() for v in id2label.values()}:
+            raise ValueError(
+                f"NLI model '{model_name}' does not expose a 'contradiction' label. "
+                f"Found: {sorted(id2label.values())}. "
+                "Set inference.nli_model to a standard NLI cross-encoder "
+                "(e.g. cross-encoder/nli-deberta-v3-base)."
+            )
 
         def predict(pairs: list[tuple[str, str]]) -> list[dict]:
             inputs = [{"text": a, "text_pair": b} for a, b in pairs]

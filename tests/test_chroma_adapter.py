@@ -1,7 +1,7 @@
 """Tests for ChromaAdapter using an injected EphemeralClient (no server needed)."""
 
-import pytest
 import numpy as np
+import pytest
 
 chromadb = pytest.importorskip("chromadb", reason="chromadb not installed; pip install pulse-scan[chroma]")
 
@@ -32,6 +32,7 @@ def _add_chunks(col, n: int, dim: int = DIM, id_prefix: str = "chunk") -> list[s
 # store_id / properties
 # ---------------------------------------------------------------------------
 
+
 def test_store_id_ephemeral(chroma_client):
     adapter = ChromaAdapter(_client=chroma_client)
     assert adapter.store_id == "chroma:ephemeral"
@@ -60,6 +61,7 @@ def test_supports_metadata_filtering(chroma_client):
 # ---------------------------------------------------------------------------
 # list_collections
 # ---------------------------------------------------------------------------
+
 
 def test_list_collections_empty(chroma_client):
     adapter = ChromaAdapter(_client=chroma_client)
@@ -121,6 +123,7 @@ def test_list_collections_no_prefix_all_visible(chroma_client):
 # ---------------------------------------------------------------------------
 # fetch_chunks
 # ---------------------------------------------------------------------------
+
 
 def test_fetch_chunks_basic(chroma_client):
     col = chroma_client.create_collection("docs")
@@ -226,6 +229,7 @@ def test_fetch_chunks_since_ignored_returns_all(chroma_client):
 # ---------------------------------------------------------------------------
 # get_embeddings
 # ---------------------------------------------------------------------------
+
 
 def test_get_embeddings_order_preserved(chroma_client):
     col = chroma_client.create_collection("docs")

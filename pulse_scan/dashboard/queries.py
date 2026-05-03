@@ -31,27 +31,20 @@ def _open_rw(data_dir: Path) -> duckdb.DuckDBPyConnection:
 # Read queries
 # ---------------------------------------------------------------------------
 
+
 def get_available_runs(conn: duckdb.DuckDBPyConnection) -> list[str]:
-    rows = conn.execute(
-        "SELECT run_id FROM scan_runs ORDER BY started_at DESC"
-    ).fetchall()
+    rows = conn.execute("SELECT run_id FROM scan_runs ORDER BY started_at DESC").fetchall()
     return [r[0] for r in rows]
 
 
 def get_corpus_overview(conn: duckdb.DuckDBPyConnection) -> dict:
     total = conn.execute("SELECT COUNT(*) FROM chunks").fetchone()[0]
-    active = conn.execute(
-        "SELECT COUNT(*) FROM chunks WHERE deleted_at IS NULL"
-    ).fetchone()[0]
+    active = conn.execute("SELECT COUNT(*) FROM chunks WHERE deleted_at IS NULL").fetchone()[0]
     deleted = total - active
     n_groups = conn.execute("SELECT COUNT(*) FROM dedup_groups").fetchone()[0]
-    n_contra = conn.execute(
-        "SELECT COUNT(*) FROM contradictions WHERE user_resolution IS NULL"
-    ).fetchone()[0]
+    n_contra = conn.execute("SELECT COUNT(*) FROM contradictions WHERE user_resolution IS NULL").fetchone()[0]
     collections = conn.execute(
-        "SELECT collection, COUNT(*) AS n "
-        "FROM chunks WHERE deleted_at IS NULL "
-        "GROUP BY collection ORDER BY collection"
+        "SELECT collection, COUNT(*) AS n FROM chunks WHERE deleted_at IS NULL GROUP BY collection ORDER BY collection"
     ).fetchall()
     return {
         "total_chunks": total,
@@ -110,18 +103,20 @@ def get_staleness_df(
     records = []
     for chunk_id, col, score, label, comp_json, text, ts in rows:
         comp = json.loads(comp_json) if comp_json else {}
-        records.append({
-            "chunk_id": chunk_id,
-            "collection": col,
-            "score": round(score, 4) if score is not None else None,
-            "label": label,
-            "age_decay": comp.get("age_decay"),
-            "cluster_drift": comp.get("cluster_drift"),
-            "contradiction_evidence": comp.get("contradiction_evidence"),
-            "supersession_evidence": comp.get("supersession_evidence"),
-            "text": (text or "")[:200],
-            "resolved_timestamp": str(ts) if ts else None,
-        })
+        records.append(
+            {
+                "chunk_id": chunk_id,
+                "collection": col,
+                "score": round(score, 4) if score is not None else None,
+                "label": label,
+                "age_decay": comp.get("age_decay"),
+                "cluster_drift": comp.get("cluster_drift"),
+                "contradiction_evidence": comp.get("contradiction_evidence"),
+                "supersession_evidence": comp.get("supersession_evidence"),
+                "text": (text or "")[:200],
+                "resolved_timestamp": str(ts) if ts else None,
+            }
+        )
     return pd.DataFrame(records)
 
 
@@ -135,8 +130,7 @@ def get_dedup_groups(
     offset: int = 0,
 ) -> list[dict]:
     sql = (
-        "SELECT group_id, canonical_chunk_id, member_chunk_ids, detection_channels "
-        "FROM dedup_groups ORDER BY group_id"
+        "SELECT group_id, canonical_chunk_id, member_chunk_ids, detection_channels FROM dedup_groups ORDER BY group_id"
     )
     if limit is not None:
         sql += f" LIMIT {int(limit)} OFFSET {int(offset)}"
@@ -158,8 +152,7 @@ def get_dedup_groups(
     if all_ids:
         placeholders = ", ".join("?" * len(all_ids))
         chunk_rows = conn.execute(
-            f"SELECT chunk_id, text, collection, staleness_score "
-            f"FROM chunks WHERE chunk_id IN ({placeholders})",
+            f"SELECT chunk_id, text, collection, staleness_score FROM chunks WHERE chunk_id IN ({placeholders})",
             all_ids,
         ).fetchall()
         chunk_map = {r[0]: r for r in chunk_rows}
@@ -176,13 +169,15 @@ def get_dedup_groups(
             }
             for cid in member_ids
         ]
-        result.append({
-            "group_id": gid,
-            "canonical_chunk_id": canonical,
-            "detection_channels": channels,
-            "members": members,
-            "n_members": len(members),
-        })
+        result.append(
+            {
+                "group_id": gid,
+                "canonical_chunk_id": canonical,
+                "detection_channels": channels,
+                "members": members,
+                "n_members": len(members),
+            }
+        )
     return result
 
 
@@ -203,9 +198,7 @@ def get_contradictions_count(
         conditions.append("detector = ?")
         params.append(detector)
     where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
-    return conn.execute(
-        f"SELECT COUNT(*) FROM contradictions {where}", params
-    ).fetchone()[0]
+    return conn.execute(f"SELECT COUNT(*) FROM contradictions {where}", params).fetchone()[0]
 
 
 def get_contradictions(
@@ -243,22 +236,36 @@ def get_contradictions(
     ).fetchall()
     result = []
     for row in rows:
-        (chunk_a, chunk_b, detector_, score, cal_state, direction,
-         user_res, run, text_a, text_b, col_a, col_b) = row
-        result.append({
-            "chunk_a": chunk_a,
-            "chunk_b": chunk_b,
-            "detector": detector_,
-            "raw_score": round(score, 4) if score else None,
-            "calibration_state": cal_state,
-            "direction": direction,
-            "user_resolution": user_res,
-            "scan_run_id": run,
-            "text_a": text_a or "",
-            "text_b": text_b or "",
-            "collection_a": col_a or "",
-            "collection_b": col_b or "",
-        })
+        (
+            chunk_a,
+            chunk_b,
+            detector_,
+            score,
+            cal_state,
+            direction,
+            user_res,
+            run,
+            text_a,
+            text_b,
+            col_a,
+            col_b,
+        ) = row
+        result.append(
+            {
+                "chunk_a": chunk_a,
+                "chunk_b": chunk_b,
+                "detector": detector_,
+                "raw_score": round(score, 4) if score else None,
+                "calibration_state": cal_state,
+                "direction": direction,
+                "user_resolution": user_res,
+                "scan_run_id": run,
+                "text_a": text_a or "",
+                "text_b": text_b or "",
+                "collection_a": col_a or "",
+                "collection_b": col_b or "",
+            }
+        )
     return result
 
 
@@ -267,8 +274,7 @@ def get_triage_summary(
     run_id: str,
 ) -> dict:
     row = conn.execute(
-        "SELECT COUNT(*), SUM(CASE WHEN was_scanned THEN 1 ELSE 0 END) "
-        "FROM triage_log WHERE scan_run_id = ?",
+        "SELECT COUNT(*), SUM(CASE WHEN was_scanned THEN 1 ELSE 0 END) FROM triage_log WHERE scan_run_id = ?",
         [run_id],
     ).fetchone()
     if not row or row[0] == 0:
@@ -279,6 +285,7 @@ def get_triage_summary(
 # ---------------------------------------------------------------------------
 # Write queries
 # ---------------------------------------------------------------------------
+
 
 def resolve_contradiction(
     data_dir: Path,
@@ -300,9 +307,7 @@ def resolve_contradiction(
 
 
 def get_resolution_summary(conn: duckdb.DuckDBPyConnection) -> dict:
-    rows = conn.execute(
-        "SELECT user_resolution, COUNT(*) FROM contradictions GROUP BY user_resolution"
-    ).fetchall()
+    rows = conn.execute("SELECT user_resolution, COUNT(*) FROM contradictions GROUP BY user_resolution").fetchall()
     summary = {"confirmed": 0, "false_positive": 0, "unresolved": 0}
     for res, n in rows:
         if res is None:

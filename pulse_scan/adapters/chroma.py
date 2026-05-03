@@ -31,12 +31,12 @@ Python 3.14 / protobuf compatibility:
 
 from __future__ import annotations
 
-from typing import Any, Iterator, Optional
+from typing import Any, Iterator
 
 import numpy as np
 
-from pulse_scan.models import ChunkBatch, ChunkRecord, CollectionInfo
 from pulse_scan.adapters.base import VectorStoreAdapter
+from pulse_scan.models import ChunkBatch, ChunkRecord, CollectionInfo
 
 
 class ChromaAdapter(VectorStoreAdapter):
@@ -78,9 +78,7 @@ class ChromaAdapter(VectorStoreAdapter):
         chroma_collections = client.list_collections()
         result = []
         for col in chroma_collections:
-            if self.collection_prefix and not col.name.startswith(
-                self.collection_prefix
-            ):
+            if self.collection_prefix and not col.name.startswith(self.collection_prefix):
                 continue
             name = self._strip_prefix(col.name)
             result.append(
@@ -133,11 +131,7 @@ class ChromaAdapter(VectorStoreAdapter):
                     ChunkRecord(
                         chunk_id=chunk_id,
                         text=docs[i] or "",
-                        embedding=(
-                            np.array(raw_emb, dtype=np.float32)
-                            if raw_emb is not None
-                            else None
-                        ),
+                        embedding=(np.array(raw_emb, dtype=np.float32) if raw_emb is not None else None),
                         metadata=metas[i] or {},
                     )
                 )

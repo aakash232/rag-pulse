@@ -13,10 +13,7 @@ Candidate pairs: all pairs within the same cluster, skipping clusters with
 more than MAX_CLUSTER_SIZE chunks to avoid O(N²) blowup.
 """
 
-import json
 import re
-from pathlib import Path
-from typing import Optional
 
 import duckdb
 import structlog
@@ -54,6 +51,7 @@ def _set_jaccard(s_a: set, s_b: set) -> float:
 # ---------------------------------------------------------------------------
 # Numeric detector
 # ---------------------------------------------------------------------------
+
 
 def _extract_numbers(text: str) -> set[float]:
     nums: set[float] = set()
@@ -121,14 +119,14 @@ class NumericContradictionDetector:
             )
             found += 1
 
-        log.info("numeric_detector_complete",
-                 pairs_checked=len(pairs), contradictions_found=found)
+        log.info("numeric_detector_complete", pairs_checked=len(pairs), contradictions_found=found)
         return {"pairs_checked": len(pairs), "contradictions_found": found}
 
 
 # ---------------------------------------------------------------------------
 # Version detector
 # ---------------------------------------------------------------------------
+
 
 def _extract_versions(text: str) -> set[str]:
     return set(_VERSION_RE.findall(text))
@@ -189,14 +187,14 @@ class VersionContradictionDetector:
             )
             found += 1
 
-        log.info("version_detector_complete",
-                 pairs_checked=len(pairs), contradictions_found=found)
+        log.info("version_detector_complete", pairs_checked=len(pairs), contradictions_found=found)
         return {"pairs_checked": len(pairs), "contradictions_found": found}
 
 
 # ---------------------------------------------------------------------------
 # Shared candidate generation
 # ---------------------------------------------------------------------------
+
 
 def _cluster_pairs(conn: duckdb.DuckDBPyConnection) -> list[tuple[str, str, str, str]]:
     """All (chunk_a_id, text_a, chunk_b_id, text_b) pairs within same cluster.
@@ -220,8 +218,12 @@ def _cluster_pairs(conn: duckdb.DuckDBPyConnection) -> list[tuple[str, str, str,
             continue
         for i in range(len(cluster_chunks)):
             for j in range(i + 1, len(cluster_chunks)):
-                pairs.append((
-                    cluster_chunks[i][0], cluster_chunks[i][1],
-                    cluster_chunks[j][0], cluster_chunks[j][1],
-                ))
+                pairs.append(
+                    (
+                        cluster_chunks[i][0],
+                        cluster_chunks[i][1],
+                        cluster_chunks[j][0],
+                        cluster_chunks[j][1],
+                    )
+                )
     return pairs

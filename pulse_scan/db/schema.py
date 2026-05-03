@@ -1,6 +1,6 @@
 from pathlib import Path
-import duckdb
 
+import duckdb
 
 _DDL = """
 CREATE TABLE IF NOT EXISTS chunks (

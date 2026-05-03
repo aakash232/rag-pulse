@@ -31,7 +31,6 @@ KNOWN_MODELS: dict[int, list[str]] = {
     384: ["sentence-transformers/all-MiniLM-L6-v2"],
 }
 
-FETCH_BUDGET_SECS = 30 * 60  # 30-minute default (LLD §3 Stage 0)
 MEMMAP_INITIAL_CAPACITY = 10_000
 MEMMAP_GROWTH_FACTOR = 2
 
@@ -39,6 +38,7 @@ MEMMAP_GROWTH_FACTOR = 2
 # ---------------------------------------------------------------------------
 # Embedding store (numpy memmap with JSON metadata sidecar)
 # ---------------------------------------------------------------------------
+
 
 class EmbeddingStore:
     def __init__(self, data_dir: Path):
@@ -85,7 +85,9 @@ class EmbeddingStore:
             capacity = MEMMAP_INITIAL_CAPACITY
             self._meta = {"dim": dim, "n_allocated": capacity, "n_used": 0}
             self._mmap = np.memmap(
-                self._arr_path, dtype=np.float32, mode="w+",
+                self._arr_path,
+                dtype=np.float32,
+                mode="w+",
                 shape=(capacity, dim),
             )
             self._save_meta()
@@ -111,7 +113,9 @@ class EmbeddingStore:
             old_used + 1_000,
         )
         self._mmap = np.memmap(
-            self._arr_path, dtype=np.float32, mode="w+",
+            self._arr_path,
+            dtype=np.float32,
+            mode="w+",
             shape=(new_cap, self._meta["dim"]),
         )
         if old_used > 0:
@@ -216,6 +220,7 @@ def resolve_timestamp(
 # Stage 0 runner
 # ---------------------------------------------------------------------------
 
+
 def _content_hash(text: str) -> str:
     return xxhash.xxh64(text.encode()).hexdigest()
 
@@ -236,7 +241,8 @@ class IngestStage:
     def run(self, run_id: str) -> dict:
         store_id = getattr(self.adapter, "store_id", "unknown")
         started_at = _utc_naive(datetime.now(timezone.utc))
-        deadline = time.monotonic() + FETCH_BUDGET_SECS
+        fetch_budget_secs = self.config.ingest.fetch_budget_secs
+        deadline = time.monotonic() + fetch_budget_secs
 
         stats = {
             "chunks_new": 0,
@@ -262,7 +268,10 @@ class IngestStage:
                 batch_size = 500
                 for batch in self.adapter.fetch_chunks(col_name, batch_size=batch_size):
                     if time.monotonic() > deadline:
-                        log.warning("fetch_budget_exceeded", elapsed_secs=FETCH_BUDGET_SECS)
+                        log.warning(
+                            "fetch_budget_exceeded",
+                            budget_secs=fetch_budget_secs,
+                        )
                         break
 
                     now = _utc_naive(datetime.now(timezone.utc))
@@ -292,16 +301,16 @@ class IngestStage:
                         f"({','.join('?' * len(chunk_ids))})",
                         [store_id, col_name] + chunk_ids,
                     ).fetchall()
-                    existing: dict[str, tuple[str, int]] = {
-                        row[0]: (row[1], row[2]) for row in rows
-                    }
+                    existing: dict[str, tuple[str, int]] = {row[0]: (row[1], row[2]) for row in rows}
 
                     for chunk in batch.chunks:
                         seen_ids[col_name].add(chunk.chunk_id)
                         h = _content_hash(chunk.text)
                         resolved_ts, ts_src = resolve_timestamp(
-                            chunk.chunk_id, chunk.metadata,
-                            col_cfg.timestamp_field, now,
+                            chunk.chunk_id,
+                            chunk.metadata,
+                            col_cfg.timestamp_field,
+                            now,
                         )
 
                         if chunk.chunk_id not in existing:
@@ -312,8 +321,19 @@ class IngestStage:
                                     resolved_timestamp, timestamp_source, embedding_offset,
                                     first_seen_by_pulse, last_seen_by_pulse, version
                                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                                [store_id, col_name, chunk.chunk_id, chunk.text, h,
-                                 resolved_ts, ts_src, emb_offset, now, now, 1],
+                                [
+                                    store_id,
+                                    col_name,
+                                    chunk.chunk_id,
+                                    chunk.text,
+                                    h,
+                                    resolved_ts,
+                                    ts_src,
+                                    emb_offset,
+                                    now,
+                                    now,
+                                    1,
+                                ],
                             )
                             stats["chunks_new"] += 1
 
@@ -337,9 +357,18 @@ class IngestStage:
                                         version = ?,
                                         deleted_at = NULL
                                     WHERE store_id = ? AND collection = ? AND chunk_id = ?""",
-                                    [chunk.text, h, resolved_ts, ts_src, emb_offset,
-                                     now, old_version + 1,
-                                     store_id, col_name, chunk.chunk_id],
+                                    [
+                                        chunk.text,
+                                        h,
+                                        resolved_ts,
+                                        ts_src,
+                                        emb_offset,
+                                        now,
+                                        old_version + 1,
+                                        store_id,
+                                        col_name,
+                                        chunk.chunk_id,
+                                    ],
                                 )
                                 stats["chunks_updated"] += 1
 
@@ -349,15 +378,13 @@ class IngestStage:
                 if not present:
                     continue
                 stored_rows = self.conn.execute(
-                    "SELECT chunk_id FROM chunks "
-                    "WHERE store_id = ? AND collection = ? AND deleted_at IS NULL",
+                    "SELECT chunk_id FROM chunks WHERE store_id = ? AND collection = ? AND deleted_at IS NULL",
                     [store_id, col_name],
                 ).fetchall()
                 for (cid,) in stored_rows:
                     if cid not in present:
                         self.conn.execute(
-                            "UPDATE chunks SET deleted_at = ? "
-                            "WHERE store_id = ? AND collection = ? AND chunk_id = ?",
+                            "UPDATE chunks SET deleted_at = ? WHERE store_id = ? AND collection = ? AND chunk_id = ?",
                             [now, store_id, col_name, cid],
                         )
                         stats["chunks_deleted"] += 1
@@ -369,8 +396,7 @@ class IngestStage:
         stats["elapsed_secs"] = (finished_at - started_at).total_seconds()
 
         self.conn.execute(
-            "INSERT INTO scan_runs (run_id, started_at, finished_at, config, stats) "
-            "VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO scan_runs (run_id, started_at, finished_at, config, stats) VALUES (?, ?, ?, ?, ?)",
             [
                 run_id,
                 started_at,

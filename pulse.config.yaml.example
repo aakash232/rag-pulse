@@ -2,27 +2,35 @@
 # WARNING: This tool shows chunk text plainly. Do not run on data containing
 # PII or sensitive content. PII redaction is planned for v1.1.
 
+# ── store ─────────────────────────────────────────────────────────────────────
+# Choose adapter with store.type: "fixture" (local JSON corpus) or "chroma".
+
 store:
   type: fixture
-  # ── fixture adapter (dev / benchmark) ──────────────────────────────────────
-  # Point fixture_dir at a directory of per-collection JSON files.
+  # Required when type is fixture: path to per-collection JSON files.
+  fixture_dir: benchmark/corpus
+  # Alternate (equivalent): omit store.fixture_dir and set root-level fixture_dir,
+  # or set store.connection.path — the CLI accepts any of these.
+
+  # ── Chroma (v1 production target) ─────────────────────────────────────────
+  # pip install pulse-scan[chroma]
   #
-  # ── Chroma adapter (v1 production target) ──────────────────────────────────
-  # Install the optional extra first:  pip install pulse-scan[chroma]
-  #
+  # store:
   #   type: chroma
   #   connection:
   #     host: localhost
   #     port: 8000
-  #     collection_prefix: ""   # expose only collections whose names start
-  #                             # with this prefix (prefix is stripped)
+  #     collection_prefix: ""   # only collections whose names start with this
+  #                             # prefix are exposed (prefix is stripped)
 
-# Path to fixture corpus (only used when store.type: fixture)
-fixture_dir: benchmark/corpus
-
-# Optional: override the embedding model used in this store.
-# If omitted, pulse infers from embedding dimension.
+# Optional: embedding model label (root-level key). If omitted, pulse infers from
+# embedding dimension where applicable. Parsed for future use across adapters.
 # embedding_model: openai-text-embedding-3-small
+
+# Stage 0: cap wall-clock time spent streaming chunks from the vector store per run.
+# Omit for default 1800 (30 minutes). Raise for huge corpora or lower for CI.
+# ingest:
+#   fetch_budget_secs: 1800
 
 collections:
   - name: docs
@@ -36,14 +44,19 @@ scan:
   cost_budget: 50000                    # cost units per scan (NLI pair = 1 unit)
   nli_batch_size: 64                    # GPU batch size for NLI inference
   contradiction_candidates_per_chunk: 5 # top-k neighbors per chunk for NLI
+  max_nli_cluster_size: 2000            # cap cluster size before pairwise cosine matrix; prevents OOM on huge clusters
   enable_numeric_detector: true
   enable_version_detector: true
 
 clustering:
   min_cluster_size: auto  # auto = max(5, sqrt(N)/4); or set an integer
   use_gpu: false          # set true for cuML UMAP at >100k chunks
+  auto_tune_clustering: true # if true, tries several cluster sizes and picks best by silhouette score
 
 inference:
+  # NLI cross-encoder — must expose a 'contradiction' label (standard HuggingFace NLI models do).
+  # Lighter option: cross-encoder/nli-MiniLM2-L6-H768
+  # Heavier option: cross-encoder/nli-deberta-v3-large
   nli_model: cross-encoder/nli-deberta-v3-base
   device: cuda            # cuda (NVIDIA), mps (Apple Silicon), or cpu
 

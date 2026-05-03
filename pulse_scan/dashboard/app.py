@@ -31,6 +31,7 @@ st.set_page_config(page_title="Pulse Scan", page_icon="📡", layout="wide")
 # Sidebar — data directory + run selection
 # ---------------------------------------------------------------------------
 
+
 def _default_data_dir() -> str:
     for i, arg in enumerate(sys.argv):
         if arg == "--data-dir" and i + 1 < len(sys.argv):

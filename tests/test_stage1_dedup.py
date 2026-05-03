@@ -1,10 +1,10 @@
 """Tests for Stage 1: Embedding-channel deduplication."""
 
 import json
+from pathlib import Path
 
 import numpy as np
 import pytest
-from pathlib import Path
 
 from pulse_scan.adapters.fixture import LocalFixtureAdapter
 from pulse_scan.config import CollectionConfig, PulseConfig, StoreConfig
@@ -13,10 +13,10 @@ from pulse_scan.stages.stage0_ingest import IngestStage
 from pulse_scan.stages.stage05_calibrate import CalibrateStage
 from pulse_scan.stages.stage1_dedup import DeduplicateStage
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
 
 def _u(v: list) -> list:
     """Return normalized list[float] for a DIM=4 embedding."""
@@ -86,15 +86,14 @@ def _cfg(corpus_dir: Path) -> PulseConfig:
 
 def _ingest_and_calibrate(conn, corpus_dir: Path, data_dir: Path) -> None:
     adapter = LocalFixtureAdapter(corpus_dir)
-    IngestStage(conn=conn, adapter=adapter, config=_cfg(corpus_dir), data_dir=data_dir).run(
-        run_id="run-001"
-    )
+    IngestStage(conn=conn, adapter=adapter, config=_cfg(corpus_dir), data_dir=data_dir).run(run_id="run-001")
     CalibrateStage(conn=conn, data_dir=data_dir).run(scan_run_id="cal-001")
 
 
 # ---------------------------------------------------------------------------
 # Core grouping
 # ---------------------------------------------------------------------------
+
 
 def test_dedup_finds_two_groups(tmp_path):
     """Two near-dup pairs are detected; solo chunks are not grouped."""
@@ -177,6 +176,7 @@ def test_dedup_detection_channel_is_embedding(tmp_path):
 # Threshold sensitivity
 # ---------------------------------------------------------------------------
 
+
 def test_dedup_no_groups_when_threshold_above_all_cosines(tmp_path):
     """threshold=0.9999 → no pair qualifies → zero groups."""
     corpus_dir = tmp_path / "corpus"
@@ -198,6 +198,7 @@ def test_dedup_no_groups_when_threshold_above_all_cosines(tmp_path):
 # Transitive grouping
 # ---------------------------------------------------------------------------
 
+
 def test_dedup_transitive_three_chunk_group(tmp_path):
     """A-B and B-C above threshold → union-find merges all three into one group."""
     corpus_dir = tmp_path / "corpus"
@@ -207,23 +208,30 @@ def test_dedup_transitive_three_chunk_group(tmp_path):
 
     # All pairwise cosines > 0.99 at these vectors
     chunks = [
-        {"id": "tri-a", "text": "triple a",
-         "embedding": _u([1, 0, 0, 0]),
-         "metadata": {"created_at": "2023-01-01T00:00:00Z"}},
-        {"id": "tri-b", "text": "triple b",
-         "embedding": _u([1, 0.05, 0, 0]),
-         "metadata": {"created_at": "2023-01-01T00:00:00Z"}},
-        {"id": "tri-c", "text": "triple c with the longest text here",
-         "embedding": _u([1, 0.10, 0, 0]),
-         "metadata": {"created_at": "2023-01-01T00:00:00Z"}},
+        {
+            "id": "tri-a",
+            "text": "triple a",
+            "embedding": _u([1, 0, 0, 0]),
+            "metadata": {"created_at": "2023-01-01T00:00:00Z"},
+        },
+        {
+            "id": "tri-b",
+            "text": "triple b",
+            "embedding": _u([1, 0.05, 0, 0]),
+            "metadata": {"created_at": "2023-01-01T00:00:00Z"},
+        },
+        {
+            "id": "tri-c",
+            "text": "triple c with the longest text here",
+            "embedding": _u([1, 0.10, 0, 0]),
+            "metadata": {"created_at": "2023-01-01T00:00:00Z"},
+        },
     ]
     (corpus_dir / "test.json").write_text(json.dumps(chunks))
 
     conn = open_db(data_dir)
     adapter = LocalFixtureAdapter(corpus_dir)
-    IngestStage(conn=conn, adapter=adapter, config=_cfg(corpus_dir), data_dir=data_dir).run(
-        run_id="run-001"
-    )
+    IngestStage(conn=conn, adapter=adapter, config=_cfg(corpus_dir), data_dir=data_dir).run(run_id="run-001")
     CalibrateStage(conn=conn, data_dir=data_dir).run(scan_run_id="cal-001")
 
     result = DeduplicateStage(conn=conn, data_dir=data_dir, threshold=0.99).run()
@@ -241,23 +249,29 @@ def test_dedup_transitive_three_chunk_group(tmp_path):
 # Edge cases
 # ---------------------------------------------------------------------------
 
+
 def test_dedup_skips_when_fewer_than_two_chunks(tmp_path):
     """Single-chunk corpus returns zeros without error."""
     corpus_dir = tmp_path / "corpus"
     corpus_dir.mkdir()
     data_dir = tmp_path / "data"
     data_dir.mkdir()
-    (corpus_dir / "test.json").write_text(json.dumps([
-        {"id": "only", "text": "the only chunk",
-         "embedding": [1.0, 0.0, 0.0, 0.0],
-         "metadata": {"created_at": "2023-01-01T00:00:00Z"}},
-    ]))
+    (corpus_dir / "test.json").write_text(
+        json.dumps(
+            [
+                {
+                    "id": "only",
+                    "text": "the only chunk",
+                    "embedding": [1.0, 0.0, 0.0, 0.0],
+                    "metadata": {"created_at": "2023-01-01T00:00:00Z"},
+                },
+            ]
+        )
+    )
 
     conn = open_db(data_dir)
     adapter = LocalFixtureAdapter(corpus_dir)
-    IngestStage(conn=conn, adapter=adapter, config=_cfg(corpus_dir), data_dir=data_dir).run(
-        run_id="run-001"
-    )
+    IngestStage(conn=conn, adapter=adapter, config=_cfg(corpus_dir), data_dir=data_dir).run(run_id="run-001")
     CalibrateStage(conn=conn, data_dir=data_dir).run(scan_run_id="cal-001")
 
     result = DeduplicateStage(conn=conn, data_dir=data_dir, threshold=0.95).run()
@@ -312,9 +326,7 @@ def test_dedup_raises_without_calibration(tmp_path):
 
     conn = open_db(data_dir)
     adapter = LocalFixtureAdapter(corpus_dir)
-    IngestStage(conn=conn, adapter=adapter, config=_cfg(corpus_dir), data_dir=data_dir).run(
-        run_id="run-001"
-    )
+    IngestStage(conn=conn, adapter=adapter, config=_cfg(corpus_dir), data_dir=data_dir).run(run_id="run-001")
     # Deliberately skip calibration
 
     with pytest.raises(RuntimeError, match="No calibration found"):

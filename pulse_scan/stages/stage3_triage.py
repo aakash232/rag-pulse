@@ -18,7 +18,6 @@ for chunks within the budget.  Returns the allowed set for NLIContradictionStage
 """
 
 import json
-import math
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -49,8 +48,8 @@ class TriageStage:
         self,
         conn: duckdb.DuckDBPyConnection,
         scan_run_id: str,
-        scan_config=None,          # ScanConfig or None
-        collection_configs=None,   # list[CollectionConfig] or None
+        scan_config=None,  # ScanConfig or None
+        collection_configs=None,  # list[CollectionConfig] or None
         reference_time: Optional[datetime] = None,
     ):
         self.conn = conn
@@ -79,9 +78,7 @@ class TriageStage:
         half_lives = {c.name: c.half_life_days for c in self._collection_configs}
 
         # cluster_id → n_chunks (from stored centroids)
-        cluster_rows = self.conn.execute(
-            "SELECT cluster_id, n_chunks FROM cluster_centroids"
-        ).fetchall()
+        cluster_rows = self.conn.execute("SELECT cluster_id, n_chunks FROM cluster_centroids").fetchall()
         cluster_sizes: dict[int, int] = {cid: n for cid, n in cluster_rows}
         max_cluster_size = max(cluster_sizes.values(), default=1)
 
@@ -112,8 +109,13 @@ class TriageStage:
             self.conn.execute(
                 "INSERT INTO triage_log (scan_run_id, chunk_id, priority, components, was_scanned) "
                 "VALUES (?, ?, ?, ?, ?)",
-                [self.scan_run_id, chunk_id, round(priority, 6),
-                 json.dumps(components), chunk_id in allowed_set],
+                [
+                    self.scan_run_id,
+                    chunk_id,
+                    round(priority, 6),
+                    json.dumps(components),
+                    chunk_id in allowed_set,
+                ],
             )
 
         budget_used = min(len(allowed_set) * k, self._cost_budget)

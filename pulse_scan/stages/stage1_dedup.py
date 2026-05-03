@@ -27,6 +27,7 @@ K_NEIGHBORS = 10
 # Union-Find (integer keys, 0..N-1)
 # ---------------------------------------------------------------------------
 
+
 class UnionFind:
     def __init__(self, n: int):
         self._parent = list(range(n))
@@ -52,6 +53,7 @@ class UnionFind:
 # ---------------------------------------------------------------------------
 # Stage runner
 # ---------------------------------------------------------------------------
+
 
 class DeduplicateStage:
     def __init__(
@@ -131,11 +133,7 @@ class DeduplicateStage:
 
         # Resolve groups — only multi-member groups are dedup groups
         raw_groups = uf.groups()
-        dedup_groups = {
-            root: members
-            for root, members in raw_groups.items()
-            if len(members) > 1
-        }
+        dedup_groups = {root: members for root, members in raw_groups.items() if len(members) > 1}
 
         # Clear previous results (idempotent)
         self.conn.execute("DELETE FROM dedup_groups")
@@ -178,19 +176,16 @@ class DeduplicateStage:
     def _get_threshold(self) -> float:
         if self._override_threshold is not None:
             return self._override_threshold
-        row = self.conn.execute(
-            "SELECT dedup_threshold FROM calibration ORDER BY rowid DESC LIMIT 1"
-        ).fetchone()
+        row = self.conn.execute("SELECT dedup_threshold FROM calibration ORDER BY rowid DESC LIMIT 1").fetchone()
         if row is None:
-            raise RuntimeError(
-                "No calibration found. Run 'pulse scan' or 'pulse calibrate' first."
-            )
+            raise RuntimeError("No calibration found. Run 'pulse scan' or 'pulse calibrate' first.")
         return float(row[0])
 
 
 # ---------------------------------------------------------------------------
 # Text-channel dedup (MinHash + LSH)
 # ---------------------------------------------------------------------------
+
 
 class TextDeduplicateStage:
     """Augments dedup_groups produced by the embedding pass using text similarity.
@@ -222,8 +217,7 @@ class TextDeduplicateStage:
         from datasketch import MinHash, MinHashLSH
 
         rows = self.conn.execute(
-            "SELECT chunk_id, text, resolved_timestamp "
-            "FROM chunks WHERE deleted_at IS NULL ORDER BY chunk_id"
+            "SELECT chunk_id, text, resolved_timestamp FROM chunks WHERE deleted_at IS NULL ORDER BY chunk_id"
         ).fetchall()
 
         if len(rows) < 2:
@@ -314,9 +308,9 @@ class TextDeduplicateStage:
                     chunk_to_group[m] = keep
                 del groups[drop]
 
-        # Rewrite dedup_groups with final consolidated state
+        # Rewrite dedup_groups with final consolidated state (re-enumerate for contiguous IDs)
         self.conn.execute("DELETE FROM dedup_groups")
-        for gid, info in sorted(groups.items()):
+        for gid, (_, info) in enumerate(sorted(groups.items())):
             canonical = max(
                 info["members"],
                 key=lambda x: (timestamps.get(x, "0000"), text_lens.get(x, 0)),
@@ -325,8 +319,12 @@ class TextDeduplicateStage:
                 "INSERT INTO dedup_groups "
                 "(group_id, canonical_chunk_id, member_chunk_ids, detection_channels) "
                 "VALUES (?, ?, ?, ?)",
-                [gid, canonical, json.dumps(sorted(info["members"])),
-                 json.dumps(sorted(info["channels"]))],
+                [
+                    gid,
+                    canonical,
+                    json.dumps(sorted(info["members"])),
+                    json.dumps(sorted(info["channels"])),
+                ],
             )
 
         total_groups = len(groups)
@@ -337,14 +335,19 @@ class TextDeduplicateStage:
             channels_updated=channels_updated,
             total_groups=total_groups,
         )
-        return {"groups_added": groups_added, "channels_updated": channels_updated,
-                "total_groups": total_groups}
+        return {
+            "groups_added": groups_added,
+            "channels_updated": channels_updated,
+            "total_groups": total_groups,
+        }
 
     def _shingles(self, text: str) -> list[bytes]:
-        words = text.lower().split()
+        import re
+
+        words = re.findall(r"\w+", text.lower())
         k = self.SHINGLE_K
         if not words:
             return [b""]
         if len(words) < k:
             return [" ".join(words).encode("utf-8")]
-        return [" ".join(words[i:i+k]).encode("utf-8") for i in range(len(words) - k + 1)]
+        return [" ".join(words[i : i + k]).encode("utf-8") for i in range(len(words) - k + 1)]

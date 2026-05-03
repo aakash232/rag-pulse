@@ -1,9 +1,10 @@
 """Tests for Stage 0: Ingestion + Cache."""
 
 import json
+from pathlib import Path
+
 import numpy as np
 import pytest
-from pathlib import Path
 
 from pulse_scan.adapters.fixture import LocalFixtureAdapter
 from pulse_scan.config import CollectionConfig, PulseConfig, StoreConfig
@@ -28,6 +29,7 @@ def _make_stage(conn, adapter, cfg, data_dir) -> IngestStage:
 # ---------------------------------------------------------------------------
 # Basic ingestion
 # ---------------------------------------------------------------------------
+
 
 def test_first_scan_inserts_all_chunks(corpus_dir, data_dir):
     conn = open_db(data_dir)
@@ -80,9 +82,7 @@ def test_updated_chunk_increments_version(corpus_dir, data_dir):
     assert stats["chunks_updated"] == 1
     assert stats["chunks_unchanged"] == 4
 
-    row = conn.execute(
-        "SELECT version, text FROM chunks WHERE chunk_id = 'chunk-002'"
-    ).fetchone()
+    row = conn.execute("SELECT version, text FROM chunks WHERE chunk_id = 'chunk-002'").fetchone()
     assert row[0] == 2
     assert row[1] == "Updated text for chunk 002."
     conn.close()
@@ -104,9 +104,7 @@ def test_deleted_chunk_is_marked(corpus_dir, data_dir):
 
     assert stats["chunks_deleted"] == 1
 
-    row = conn.execute(
-        "SELECT deleted_at FROM chunks WHERE chunk_id = 'chunk-004'"
-    ).fetchone()
+    row = conn.execute("SELECT deleted_at FROM chunks WHERE chunk_id = 'chunk-004'").fetchone()
     assert row[0] is not None  # deleted_at set
     conn.close()
 
@@ -115,6 +113,7 @@ def test_deleted_chunk_is_marked(corpus_dir, data_dir):
 # scan_runs table
 # ---------------------------------------------------------------------------
 
+
 def test_scan_run_recorded(corpus_dir, data_dir):
     conn = open_db(data_dir)
     adapter = LocalFixtureAdapter(corpus_dir)
@@ -122,9 +121,7 @@ def test_scan_run_recorded(corpus_dir, data_dir):
 
     _make_stage(conn, adapter, cfg, data_dir).run(run_id="run-abc")
 
-    row = conn.execute(
-        "SELECT run_id, stats FROM scan_runs WHERE run_id = 'run-abc'"
-    ).fetchone()
+    row = conn.execute("SELECT run_id, stats FROM scan_runs WHERE run_id = 'run-abc'").fetchone()
     assert row is not None
     assert row[0] == "run-abc"
     scan_stats = json.loads(row[1])
@@ -136,6 +133,7 @@ def test_scan_run_recorded(corpus_dir, data_dir):
 # Embedding memmap
 # ---------------------------------------------------------------------------
 
+
 def test_memmap_shape(corpus_dir, data_dir):
     conn = open_db(data_dir)
     adapter = LocalFixtureAdapter(corpus_dir)
@@ -145,6 +143,7 @@ def test_memmap_shape(corpus_dir, data_dir):
 
     # memmap should exist and meta should record dim + n_used
     import json as _json
+
     meta = _json.loads((data_dir / "embeddings.meta.json").read_text())
     assert meta["dim"] == DIM
     assert meta["n_used"] == 5
@@ -170,9 +169,7 @@ def test_memmap_embedding_offset_stored(corpus_dir, data_dir):
 
     _make_stage(conn, adapter, cfg, data_dir).run(run_id="run-001")
 
-    rows = conn.execute(
-        "SELECT chunk_id, embedding_offset FROM chunks ORDER BY chunk_id"
-    ).fetchall()
+    rows = conn.execute("SELECT chunk_id, embedding_offset FROM chunks ORDER BY chunk_id").fetchall()
     offsets = [r[1] for r in rows]
     # Offsets should be 0..4 (sequential)
     assert sorted(offsets) == list(range(5))
@@ -182,6 +179,7 @@ def test_memmap_embedding_offset_stored(corpus_dir, data_dir):
 # ---------------------------------------------------------------------------
 # Dimension mismatch detection
 # ---------------------------------------------------------------------------
+
 
 def test_dimension_mismatch_raises(corpus_dir, data_dir):
     conn = open_db(data_dir)
@@ -212,6 +210,7 @@ def test_dimension_mismatch_raises(corpus_dir, data_dir):
 # Timestamp resolution
 # ---------------------------------------------------------------------------
 
+
 def test_timestamp_resolved_from_metadata(corpus_dir, data_dir):
     conn = open_db(data_dir)
     adapter = LocalFixtureAdapter(corpus_dir)
@@ -219,9 +218,7 @@ def test_timestamp_resolved_from_metadata(corpus_dir, data_dir):
 
     _make_stage(conn, adapter, cfg, data_dir).run(run_id="run-001")
 
-    row = conn.execute(
-        "SELECT timestamp_source FROM chunks WHERE chunk_id = 'chunk-000'"
-    ).fetchone()
+    row = conn.execute("SELECT timestamp_source FROM chunks WHERE chunk_id = 'chunk-000'").fetchone()
     assert row[0] == "metadata_field"
     conn.close()
 
@@ -238,9 +235,7 @@ def test_timestamp_fallback_when_no_field(corpus_dir, data_dir):
 
     _make_stage(conn, adapter, cfg, data_dir).run(run_id="run-001")
 
-    row = conn.execute(
-        "SELECT timestamp_source FROM chunks WHERE chunk_id = 'chunk-000'"
-    ).fetchone()
+    row = conn.execute("SELECT timestamp_source FROM chunks WHERE chunk_id = 'chunk-000'").fetchone()
     # No timestamp_field, no UUIDv1/ULID → first_seen fallback
     assert row[0] == "first_seen"
     conn.close()

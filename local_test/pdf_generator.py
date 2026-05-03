@@ -1,8 +1,9 @@
 import os
-from reportlab.lib.pagesizes import letter
-from reportlab.pdfgen import canvas
+
 from dotenv import load_dotenv
 from openai import OpenAI
+from reportlab.lib.pagesizes import letter
+from reportlab.pdfgen import canvas
 
 load_dotenv()
 

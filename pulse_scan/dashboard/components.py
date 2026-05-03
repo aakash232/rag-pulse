@@ -32,23 +32,23 @@ from pulse_scan.dashboard.queries import (
 # ---------------------------------------------------------------------------
 
 LABEL_COLOR = {
-    "fresh":     "#2ecc71",
-    "aging":     "#f39c12",
-    "stale":     "#e67e22",
+    "fresh": "#2ecc71",
+    "aging": "#f39c12",
+    "stale": "#e67e22",
     "abandoned": "#e74c3c",
 }
 
 LABEL_ICON = {
-    "fresh":     "🟢",
-    "aging":     "🟡",
-    "stale":     "🟠",
+    "fresh": "🟢",
+    "aging": "🟡",
+    "stale": "🟠",
     "abandoned": "🔴",
 }
 
 LABEL_DESC = {
-    "fresh":     "Recently updated. No significant decay signals.",
-    "aging":     "Getting old. Worth monitoring but not yet urgent.",
-    "stale":     "Likely outdated. Review and update recommended.",
+    "fresh": "Recently updated. No significant decay signals.",
+    "aging": "Getting old. Worth monitoring but not yet urgent.",
+    "stale": "Likely outdated. Review and update recommended.",
     "abandoned": "Very old, contradicted, or semantically drifted. Probable dead content.",
 }
 
@@ -66,8 +66,7 @@ COMPONENT_META: dict[str, tuple[str, str]] = {
     ),
     "contradiction_evidence": (
         "Contradiction evidence",
-        "Degree of involvement in NLI, numeric, or version contradictions "
-        "detected during this scan.",
+        "Degree of involvement in NLI, numeric, or version contradictions detected during this scan.",
     ),
     "supersession_evidence": (
         "Supersession evidence",
@@ -79,16 +78,16 @@ DETECTOR_ICON = {"nli": "🧠", "numeric": "🔢", "version": "🏷️"}
 DIRECTION_LABEL = {"a->b": "→", "b->a": "←", "both": "↔"}
 
 LABEL_FILTER_OPTIONS: dict[str, str | None] = {
-    "All":          None,
+    "All": None,
     "🔴 Abandoned": "abandoned",
-    "🟠 Stale":     "stale",
-    "🟡 Aging":     "aging",
-    "🟢 Fresh":     "fresh",
+    "🟠 Stale": "stale",
+    "🟡 Aging": "aging",
+    "🟢 Fresh": "fresh",
 }
 
 VERDICT_OPTIONS: dict[str, str | None] = {
-    "(skip for now)":                        None,
-    "✅ Confirmed — real contradiction":     "confirmed",
+    "(skip for now)": None,
+    "✅ Confirmed — real contradiction": "confirmed",
     "❌ False positive — not a real conflict": "false_positive",
 }
 
@@ -100,6 +99,7 @@ PAGE_SIZE_DUPS = 25
 # ---------------------------------------------------------------------------
 # Pagination helper
 # ---------------------------------------------------------------------------
+
 
 def _pagination_nav(state_key: str, total: int, page_size: int, key_suffix: str = "") -> int:
     """Renders Prev / page-info / Next row. Returns the current 0-based page.
@@ -131,6 +131,7 @@ def _pagination_nav(state_key: str, total: int, page_size: int, key_suffix: str 
 # Low-level visual helpers
 # ---------------------------------------------------------------------------
 
+
 def _score_bar_html(score: float, color: str) -> str:
     pct = min(100, int(score * 100))
     return (
@@ -151,6 +152,7 @@ def _resolution_badge(resolution: str) -> None:
 # ---------------------------------------------------------------------------
 # Staleness tab
 # ---------------------------------------------------------------------------
+
 
 def _render_staleness_legend() -> None:
     with st.expander("ℹ️ How to read staleness scores", expanded=False):
@@ -181,11 +183,7 @@ def _render_staleness_chunk(chunk: dict) -> None:
     icon = LABEL_ICON.get(label, "⚪")
     color = LABEL_COLOR.get(label, "#aaa")
 
-    header = (
-        f"{icon} **{chunk['chunk_id']}** &nbsp;·&nbsp; "
-        f"`{chunk['collection']}` &nbsp;·&nbsp; "
-        f"score **{score:.3f}**"
-    )
+    header = f"{icon} **{chunk['chunk_id']}** &nbsp;·&nbsp; `{chunk['collection']}` &nbsp;·&nbsp; score **{score:.3f}**"
     with st.expander(header):
         st.markdown(
             _score_bar_html(score, color),
@@ -252,6 +250,7 @@ def render_staleness(conn) -> None:
 # Overview tab
 # ---------------------------------------------------------------------------
 
+
 def render_overview(conn, run_id: str) -> None:
     st.header("Corpus overview")
     overview = get_corpus_overview(conn)
@@ -266,15 +265,18 @@ def render_overview(conn, run_id: str) -> None:
     c1.metric("Active chunks", overview["active_chunks"])
     c2.metric("% Fresh", f"{pct_fresh}%", help="Fraction of chunks with no decay signals.")
     c3.metric(
-        "Dedup groups", overview["dedup_groups"],
+        "Dedup groups",
+        overview["dedup_groups"],
         help="Groups of near-duplicate chunks. Each group should ideally have one canonical version.",
     )
     c4.metric(
-        "Open contradictions", overview["open_contradictions"],
+        "Open contradictions",
+        overview["open_contradictions"],
         help="Contradiction pairs not yet reviewed in the dashboard.",
     )
     c5.metric(
-        "NLI scanned", triage["chunks_scanned"],
+        "NLI scanned",
+        triage["chunks_scanned"],
         help="Chunks evaluated for contradictions in this run (budget-gated).",
     )
 
@@ -284,11 +286,7 @@ def render_overview(conn, run_id: str) -> None:
     with col_l:
         st.subheader("Staleness distribution")
         if any(label_counts.values()):
-            df = pd.DataFrame([
-                {"label": k, "count": v}
-                for k, v in label_counts.items()
-                if v > 0
-            ])
+            df = pd.DataFrame([{"label": k, "count": v} for k, v in label_counts.items() if v > 0])
             chart = (
                 alt.Chart(df)
                 .mark_bar(cornerRadiusTopLeft=4, cornerRadiusTopRight=4)
@@ -337,7 +335,8 @@ def render_overview(conn, run_id: str) -> None:
     r1, r2, r3 = st.columns(3)
     r1.metric("✅ Confirmed", res["confirmed"], help="Marked as real contradictions.")
     r2.metric(
-        "❌ False positives", res["false_positive"],
+        "❌ False positives",
+        res["false_positive"],
         help="Marked as false alarms. Used to raise the NLI confidence threshold.",
     )
     r3.metric("⏳ Unreviewed", res["unresolved"])
@@ -347,24 +346,20 @@ def render_overview(conn, run_id: str) -> None:
 # Duplicates tab
 # ---------------------------------------------------------------------------
 
+
 def _render_dup_group(g: dict) -> None:
     channels_str = " · ".join(g["detection_channels"])
     header = (
-        f"🔁 Group {g['group_id']} &nbsp;·&nbsp; "
-        f"{g['n_members']} members &nbsp;·&nbsp; "
-        f"detected via: {channels_str}"
+        f"🔁 Group {g['group_id']} &nbsp;·&nbsp; {g['n_members']} members &nbsp;·&nbsp; detected via: {channels_str}"
     )
     with st.expander(header):
         for m in g["members"]:
             role = "✅ canonical" if m["is_canonical"] else "duplicate"
             score_str = (
-                f"staleness {m['staleness_score']:.3f}"
-                if m["staleness_score"] is not None
-                else "no staleness score"
+                f"staleness {m['staleness_score']:.3f}" if m["staleness_score"] is not None else "no staleness score"
             )
             st.markdown(
-                f"**{m['chunk_id']}** &nbsp; `{m['collection']}` "
-                f"&nbsp;—&nbsp; {role} &nbsp;·&nbsp; {score_str}"
+                f"**{m['chunk_id']}** &nbsp; `{m['collection']}` &nbsp;—&nbsp; {role} &nbsp;·&nbsp; {score_str}"
             )
             st.caption(m["text"] or "(no text)")
             st.divider()
@@ -400,8 +395,10 @@ def render_duplicates(conn) -> None:
 # Contradictions tab
 # ---------------------------------------------------------------------------
 
+
 def _make_verdict_callback(chunk_a: str, chunk_b: str, radio_key: str):
     """Returns an on_change callback that stages the verdict in session_state."""
+
     def _cb() -> None:
         val = st.session_state.get(radio_key)
         resolution = VERDICT_OPTIONS.get(val)
@@ -411,6 +408,7 @@ def _make_verdict_callback(chunk_a: str, chunk_b: str, radio_key: str):
             pv[pair] = resolution
         elif pair in pv:
             del pv[pair]
+
     return _cb
 
 
@@ -457,9 +455,7 @@ def render_contradictions(conn, run_id: str, data_dir: Path) -> None:
     # --- Filters ---
     f1, f2 = st.columns(2)
     with f1:
-        detector_filter = st.selectbox(
-            "Detector", ["all", "nli", "numeric", "version"], key="det_filter"
-        )
+        detector_filter = st.selectbox("Detector", ["all", "nli", "numeric", "version"], key="det_filter")
     with f2:
         show_all = st.checkbox("Show resolved contradictions", value=False)
 
@@ -499,10 +495,7 @@ def render_contradictions(conn, run_id: str, data_dir: Path) -> None:
                 st.session_state["contra_save_count"] = n_pending
                 st.rerun()
         with info_col:
-            st.caption(
-                f"{n_pending} verdict(s) staged across all pages — "
-                "navigating pages does **not** lose them."
-            )
+            st.caption(f"{n_pending} verdict(s) staged across all pages — navigating pages does **not** lose them.")
 
     # --- Pagination + items ---
     page = _pagination_nav("contra_page", total, PAGE_SIZE_CONTRA)

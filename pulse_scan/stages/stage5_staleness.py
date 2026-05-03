@@ -1,4 +1,5 @@
 """Stage 5: Staleness Scoring.
+Based on: https://arxiv.org/pdf/2509.19376
 
 Computes a continuous staleness score in [0, 1] for every active chunk by
 combining four available signals:
@@ -30,10 +31,10 @@ log = structlog.get_logger()
 # Component weights (initial heuristic; sum = 1.0).
 # age and contradiction are the primary drivers; cluster_drift and supersession
 # act as amplifiers when stale signals accumulate.
-_W_AGE   = 0.35
+_W_AGE = 0.35
 _W_DRIFT = 0.20
 _W_CONTRA = 0.30
-_W_SUPER  = 0.15
+_W_SUPER = 0.15
 
 DEFAULT_HALF_LIFE_DAYS = 90
 
@@ -41,6 +42,7 @@ DEFAULT_HALF_LIFE_DAYS = 90
 # ---------------------------------------------------------------------------
 # Component functions
 # ---------------------------------------------------------------------------
+
 
 def _age_decay(resolved_ts: Optional[datetime], now: datetime, half_life_days: int) -> float:
     """1 − 2^(−age / half_life).  Returns 0 if no timestamp available."""
@@ -83,12 +85,13 @@ def _utc_naive_now() -> datetime:
 # Stage
 # ---------------------------------------------------------------------------
 
+
 class StalenessStage:
     def __init__(
         self,
         conn: duckdb.DuckDBPyConnection,
         data_dir: Path,
-        collection_configs=None,       # list[CollectionConfig] or None
+        collection_configs=None,  # list[CollectionConfig] or None
         reference_time: Optional[datetime] = None,  # inject for testing
     ):
         self.conn = conn
@@ -169,9 +172,7 @@ class StalenessStage:
     # ------------------------------------------------------------------
 
     def _load_centroids(self) -> dict:
-        rows = self.conn.execute(
-            "SELECT cluster_id, centroid FROM cluster_centroids"
-        ).fetchall()
+        rows = self.conn.execute("SELECT cluster_id, centroid FROM cluster_centroids").fetchall()
         centroids: dict[int, np.ndarray] = {}
         for cluster_id, blob in rows:
             c = np.frombuffer(blob, dtype=np.float32).copy()
@@ -193,9 +194,7 @@ class StalenessStage:
         return {chunk_id: int(n) for chunk_id, n in rows}
 
     def _load_superseded_ids(self) -> set:
-        rows = self.conn.execute(
-            "SELECT canonical_chunk_id, member_chunk_ids FROM dedup_groups"
-        ).fetchall()
+        rows = self.conn.execute("SELECT canonical_chunk_id, member_chunk_ids FROM dedup_groups").fetchall()
         superseded: set[str] = set()
         for canonical, members_json in rows:
             for member in json.loads(members_json):

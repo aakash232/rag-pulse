@@ -10,7 +10,6 @@ Corpus structure (50 chunks across 3 collections):
 """
 
 import json
-import math
 from pathlib import Path
 
 import numpy as np
@@ -22,6 +21,7 @@ DIM = 384  # sentence-transformers/all-MiniLM-L6-v2 dimension
 # ---------------------------------------------------------------------------
 # Embedding helpers
 # ---------------------------------------------------------------------------
+
 
 def _unit(v: np.ndarray) -> np.ndarray:
     return v / np.linalg.norm(v)
@@ -54,21 +54,32 @@ def emb(v: np.ndarray) -> list[float]:
 # Topic cluster base vectors (generated once, deterministic via RNG seed)
 # ---------------------------------------------------------------------------
 
-B = {k: _base() for k in [
-    "refund", "support", "privacy", "promo",
-    "p_starter", "p_pro", "p_enterprise", "p_misc",
-    "api_install", "api_auth", "api_methods",
-]}
+B = {
+    k: _base()
+    for k in [
+        "refund",
+        "support",
+        "privacy",
+        "promo",
+        "p_starter",
+        "p_pro",
+        "p_enterprise",
+        "p_misc",
+        "api_install",
+        "api_auth",
+        "api_methods",
+    ]
+}
 
 
 # ---------------------------------------------------------------------------
 # Corpus definitions
 # ---------------------------------------------------------------------------
 
+
 def docs_collection() -> list[dict]:
     r = B["refund"]
     s = B["support"]
-    p = B["privacy"]
     pr = B["promo"]
 
     return [
@@ -116,7 +127,6 @@ def docs_collection() -> list[dict]:
             "embedding": emb(_cluster_member(r, noise=0.20)),
             "metadata": {"created_at": "2023-01-15T11:00:00Z", "source": "help-center/refunds.md"},
         },
-
         # --- Support hours cluster (B) ---
         # B1: canonical
         {
@@ -148,7 +158,6 @@ def docs_collection() -> list[dict]:
             "embedding": emb(_cluster_member(s, noise=0.22)),
             "metadata": {"created_at": "2023-01-10T09:00:00Z", "source": "help-center/contact.md"},
         },
-
         # --- Privacy cluster (C) ---
         {
             "id": "docs-privacy-001",
@@ -180,13 +189,11 @@ def docs_collection() -> list[dict]:
             "embedding": emb(_cluster_member(B["privacy"], noise=0.19)),
             "metadata": {"created_at": "2022-11-01T00:00:00Z", "source": "legal/privacy.md"},
         },
-
         # --- Time-bounded content (D) — stale by content, not corpus dynamics ---
         {
             "id": "docs-promo-001",
             "text": (
-                "Spring promotion: Get 20% off all annual plans through March 31, 2023. "
-                "Use code SPRING23 at checkout."
+                "Spring promotion: Get 20% off all annual plans through March 31, 2023. Use code SPRING23 at checkout."
             ),
             "embedding": emb(_cluster_member(pr, noise=0.12)),
             "metadata": {"created_at": "2023-03-01T00:00:00Z", "source": "marketing/promos.md"},
@@ -202,14 +209,10 @@ def docs_collection() -> list[dict]:
         },
         {
             "id": "docs-promo-003",
-            "text": (
-                "Holiday special: Sign up before January 1, 2023 and receive 3 months free "
-                "on any paid plan."
-            ),
+            "text": ("Holiday special: Sign up before January 1, 2023 and receive 3 months free on any paid plan."),
             "embedding": emb(_cluster_member(pr, noise=0.13)),
             "metadata": {"created_at": "2022-12-01T00:00:00Z", "source": "marketing/promos.md"},
         },
-
         # --- Isolated orphan chunks (E) — diverse topics, no cluster ---
         {
             "id": "docs-orphan-001",
@@ -227,7 +230,10 @@ def docs_collection() -> list[dict]:
             "id": "docs-orphan-003",
             "text": "Compatible with macOS 12 Monterey and later, Windows 10+, and Ubuntu 20.04 LTS.",
             "embedding": emb(_orphan()),
-            "metadata": {"created_at": "2022-09-01T00:00:00Z", "source": "docs/system-requirements.md"},
+            "metadata": {
+                "created_at": "2022-09-01T00:00:00Z",
+                "source": "docs/system-requirements.md",
+            },
         },
         {
             "id": "docs-orphan-004",
@@ -240,10 +246,7 @@ def docs_collection() -> list[dict]:
         },
         {
             "id": "docs-orphan-005",
-            "text": (
-                "The platform processes approximately 10 million events per day "
-                "across all customer tenants."
-            ),
+            "text": ("The platform processes approximately 10 million events per day across all customer tenants."),
             "embedding": emb(_orphan()),
             "metadata": {"created_at": "2023-06-01T00:00:00Z", "source": "docs/scale.md"},
         },
@@ -251,7 +254,10 @@ def docs_collection() -> list[dict]:
             "id": "docs-orphan-006",
             "text": "Keyboard shortcut reference: Cmd+K opens the command palette. Cmd+/ toggles comments.",
             "embedding": emb(_orphan()),
-            "metadata": {"created_at": "2023-04-01T00:00:00Z", "source": "docs/keyboard-shortcuts.md"},
+            "metadata": {
+                "created_at": "2023-04-01T00:00:00Z",
+                "source": "docs/keyboard-shortcuts.md",
+            },
         },
     ]
 
@@ -306,7 +312,6 @@ def pricing_collection() -> list[dict]:
             "embedding": emb(_cluster_member(ps, noise=0.24)),
             "metadata": {"created_at": "2023-01-01T00:00:00Z", "source": "pricing/overview.md"},
         },
-
         # --- Pro plan: price evolution ---
         # PP1: OLD price
         {
@@ -334,7 +339,6 @@ def pricing_collection() -> list[dict]:
             "embedding": emb(_cluster_member(pp, noise=0.19)),
             "metadata": {"created_at": "2023-01-01T00:00:00Z", "source": "pricing/pro-features.md"},
         },
-
         # --- Enterprise plan: price contradiction ---
         {
             "id": "pricing-enterprise-001",
@@ -343,7 +347,10 @@ def pricing_collection() -> list[dict]:
                 "Custom pricing available for larger teams."
             ),
             "embedding": emb(_near_dup(pe, noise=0.001)),
-            "metadata": {"created_at": "2023-01-01T00:00:00Z", "source": "pricing/enterprise-v1.md"},
+            "metadata": {
+                "created_at": "2023-01-01T00:00:00Z",
+                "source": "pricing/enterprise-v1.md",
+            },
         },
         {
             "id": "pricing-enterprise-002",
@@ -352,7 +359,10 @@ def pricing_collection() -> list[dict]:
                 "Includes dedicated support, SSO, and custom SLAs."
             ),
             "embedding": emb(_near_dup(pe, noise=0.020)),
-            "metadata": {"created_at": "2023-09-01T00:00:00Z", "source": "pricing/enterprise-v2.md"},
+            "metadata": {
+                "created_at": "2023-09-01T00:00:00Z",
+                "source": "pricing/enterprise-v2.md",
+            },
         },
         {
             "id": "pricing-enterprise-003",
@@ -364,7 +374,10 @@ def pricing_collection() -> list[dict]:
             "id": "pricing-enterprise-004",
             "text": "Enterprise plan includes a 99.9% uptime SLA with financial penalties for breaches.",
             "embedding": emb(_cluster_member(pe, noise=0.20)),
-            "metadata": {"created_at": "2023-01-01T00:00:00Z", "source": "pricing/enterprise-sla.md"},
+            "metadata": {
+                "created_at": "2023-01-01T00:00:00Z",
+                "source": "pricing/enterprise-sla.md",
+            },
         },
         {
             "id": "pricing-enterprise-005",
@@ -372,7 +385,6 @@ def pricing_collection() -> list[dict]:
             "embedding": emb(_cluster_member(pe, noise=0.22)),
             "metadata": {"created_at": "2023-01-01T00:00:00Z", "source": "pricing/volume.md"},
         },
-
         # --- Misc pricing (stable) ---
         {
             "id": "pricing-misc-001",
@@ -395,8 +407,8 @@ def api_collection() -> list[dict]:
     am = B["api_methods"]
 
     # Pre-compute sub-bases so paired chunks share a common ancestor
-    ai_python = _cluster_member(ai, noise=0.10)   # Python SDK sub-cluster
-    aa_ratelimit = _cluster_member(aa, noise=0.12) # Rate-limit sub-cluster
+    ai_python = _cluster_member(ai, noise=0.10)  # Python SDK sub-cluster
+    aa_ratelimit = _cluster_member(aa, noise=0.12)  # Rate-limit sub-cluster
 
     return [
         # --- SDK Installation: version supersession ---
@@ -405,7 +417,10 @@ def api_collection() -> list[dict]:
             "id": "api-install-001",
             "text": "Install the JavaScript SDK: npm install @acme/sdk@1.2.3",
             "embedding": emb(_near_dup(ai, noise=0.001)),
-            "metadata": {"created_at": "2023-01-15T00:00:00Z", "source": "docs/sdk/js-install-v1.md"},
+            "metadata": {
+                "created_at": "2023-01-15T00:00:00Z",
+                "source": "docs/sdk/js-install-v1.md",
+            },
         },
         # JS SDK v2 (new — supersedes api-install-001)
         {
@@ -415,14 +430,20 @@ def api_collection() -> list[dict]:
                 "Note: v2 contains breaking changes. See the migration guide."
             ),
             "embedding": emb(_near_dup(ai, noise=0.023)),
-            "metadata": {"created_at": "2023-08-01T00:00:00Z", "source": "docs/sdk/js-install-v2.md"},
+            "metadata": {
+                "created_at": "2023-08-01T00:00:00Z",
+                "source": "docs/sdk/js-install-v2.md",
+            },
         },
         # Python SDK v1 (old) — shares ai_python sub-base with v2
         {
             "id": "api-install-003",
             "text": "Install the Python SDK: pip install acme-sdk==1.4.0",
             "embedding": emb(_near_dup(ai_python, noise=0.001)),
-            "metadata": {"created_at": "2023-01-15T00:00:00Z", "source": "docs/sdk/python-install-v1.md"},
+            "metadata": {
+                "created_at": "2023-01-15T00:00:00Z",
+                "source": "docs/sdk/python-install-v1.md",
+            },
         },
         # Python SDK v2 (new — supersedes api-install-003)
         {
@@ -432,9 +453,11 @@ def api_collection() -> list[dict]:
                 "Python 3.9+ required. The v1 package (acme-sdk<2.0) reaches end-of-life December 2024."
             ),
             "embedding": emb(_near_dup(ai_python, noise=0.025)),
-            "metadata": {"created_at": "2023-08-01T00:00:00Z", "source": "docs/sdk/python-install-v2.md"},
+            "metadata": {
+                "created_at": "2023-08-01T00:00:00Z",
+                "source": "docs/sdk/python-install-v2.md",
+            },
         },
-
         # --- Authentication (stable, with one numeric contradiction) ---
         {
             "id": "api-auth-001",
@@ -469,9 +492,11 @@ def api_collection() -> list[dict]:
                 "Starter plan is limited to 100 requests per minute."
             ),
             "embedding": emb(_near_dup(aa_ratelimit, noise=0.025)),
-            "metadata": {"created_at": "2023-06-01T00:00:00Z", "source": "docs/api/rate-limits-v2.md"},
+            "metadata": {
+                "created_at": "2023-06-01T00:00:00Z",
+                "source": "docs/api/rate-limits-v2.md",
+            },
         },
-
         # --- Core methods: v1 → v2 supersession ---
         # v1 initialization (old)
         {
@@ -482,7 +507,10 @@ def api_collection() -> list[dict]:
                 "await client.connect();"
             ),
             "embedding": emb(_near_dup(am, noise=0.001)),
-            "metadata": {"created_at": "2023-01-15T00:00:00Z", "source": "docs/sdk/quickstart-v1.md"},
+            "metadata": {
+                "created_at": "2023-01-15T00:00:00Z",
+                "source": "docs/sdk/quickstart-v1.md",
+            },
         },
         # v2 initialization (supersedes api-methods-001)
         {
@@ -494,7 +522,10 @@ def api_collection() -> list[dict]:
                 "The connect() method is deprecated and will be removed in v3.0."
             ),
             "embedding": emb(_near_dup(am, noise=0.025)),
-            "metadata": {"created_at": "2023-08-01T00:00:00Z", "source": "docs/sdk/quickstart-v2.md"},
+            "metadata": {
+                "created_at": "2023-08-01T00:00:00Z",
+                "source": "docs/sdk/quickstart-v2.md",
+            },
         },
         # Stable methods
         {
@@ -505,9 +536,7 @@ def api_collection() -> list[dict]:
         },
         {
             "id": "api-methods-004",
-            "text": (
-                "Register webhooks: await client.webhooks.register(url, ['record.created', 'record.updated'])"
-            ),
+            "text": ("Register webhooks: await client.webhooks.register(url, ['record.created', 'record.updated'])"),
             "embedding": emb(_cluster_member(am, noise=0.20)),
             "metadata": {"created_at": "2023-01-15T00:00:00Z", "source": "docs/sdk/webhooks.md"},
         },
@@ -515,7 +544,10 @@ def api_collection() -> list[dict]:
             "id": "api-methods-005",
             "text": "All SDK methods return Promises. Use async/await or .then()/.catch() for error handling.",
             "embedding": emb(_cluster_member(am, noise=0.21)),
-            "metadata": {"created_at": "2023-01-15T00:00:00Z", "source": "docs/sdk/error-handling.md"},
+            "metadata": {
+                "created_at": "2023-01-15T00:00:00Z",
+                "source": "docs/sdk/error-handling.md",
+            },
         },
         {
             "id": "api-methods-006",
@@ -538,6 +570,7 @@ def api_collection() -> list[dict]:
 # ---------------------------------------------------------------------------
 # Write collections
 # ---------------------------------------------------------------------------
+
 
 def write_collection(name: str, chunks: list[dict], out_dir: Path) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)

@@ -2,12 +2,14 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterator, Optional
+
 import numpy as np
 
+from pulse_scan.adapters.base import VectorStoreAdapter
 from pulse_scan.models import ChunkBatch, ChunkRecord, CollectionInfo
 
 
-class LocalFixtureAdapter:
+class LocalFixtureAdapter(VectorStoreAdapter):
     """Reads chunks from a directory of per-collection JSON files.
 
     Each file is named <collection>.json and contains an array of objects:

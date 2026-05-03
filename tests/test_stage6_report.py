@@ -23,18 +23,28 @@ RUN_ID = "test-run-0001"
 # Fixture helpers
 # ---------------------------------------------------------------------------
 
+
 def _make_corpus(corpus_dir: Path) -> None:
     fresh_ts = (REF_TIME - timedelta(days=7)).strftime("%Y-%m-%dT%H:%M:%SZ")
     chunks = [
-        {"id": "chunk-a", "text": "alpha content",
-         "embedding": [1.0, 0.0, 0.0, 0.0],
-         "metadata": {"created_at": fresh_ts}},
-        {"id": "chunk-b", "text": "beta content different",
-         "embedding": [0.999, 0.045, 0.0, 0.0],
-         "metadata": {"created_at": "2022-01-01T00:00:00Z"}},
-        {"id": "chunk-c", "text": "gamma standalone",
-         "embedding": [0.0, 1.0, 0.0, 0.0],
-         "metadata": {"created_at": "2023-06-01T00:00:00Z"}},
+        {
+            "id": "chunk-a",
+            "text": "alpha content",
+            "embedding": [1.0, 0.0, 0.0, 0.0],
+            "metadata": {"created_at": fresh_ts},
+        },
+        {
+            "id": "chunk-b",
+            "text": "beta content different",
+            "embedding": [0.999, 0.045, 0.0, 0.0],
+            "metadata": {"created_at": "2022-01-01T00:00:00Z"},
+        },
+        {
+            "id": "chunk-c",
+            "text": "gamma standalone",
+            "embedding": [0.0, 1.0, 0.0, 0.0],
+            "metadata": {"created_at": "2023-06-01T00:00:00Z"},
+        },
     ]
     (corpus_dir / "docs.json").write_text(json.dumps(chunks))
 
@@ -42,8 +52,7 @@ def _make_corpus(corpus_dir: Path) -> None:
 def _cfg(corpus_dir: Path) -> PulseConfig:
     return PulseConfig(
         store=StoreConfig(type="fixture"),
-        collections=[CollectionConfig(name="docs", timestamp_field="created_at",
-                                      half_life_days=90)],
+        collections=[CollectionConfig(name="docs", timestamp_field="created_at", half_life_days=90)],
         fixture_dir=str(corpus_dir),
     )
 
@@ -66,16 +75,18 @@ def _setup(tmp_path: Path):
     conn.execute("UPDATE chunks SET cluster_id = 0 WHERE chunk_id IN ('chunk-a', 'chunk-b')")
     c0 = np.array([1.0, 0.025, 0.0, 0.0], dtype=np.float32)
     c0 /= np.linalg.norm(c0)
-    conn.execute("INSERT INTO cluster_centroids (cluster_id, centroid, n_chunks) VALUES (0, ?, 2)",
-                 [c0.tobytes()])
+    conn.execute(
+        "INSERT INTO cluster_centroids (cluster_id, centroid, n_chunks) VALUES (0, ?, 2)",
+        [c0.tobytes()],
+    )
     conn.execute("UPDATE chunks SET cluster_id = 1 WHERE chunk_id = 'chunk-c'")
     c1 = np.array([0.0, 1.0, 0.0, 0.0], dtype=np.float32)
-    conn.execute("INSERT INTO cluster_centroids (cluster_id, centroid, n_chunks) VALUES (1, ?, 1)",
-                 [c1.tobytes()])
+    conn.execute(
+        "INSERT INTO cluster_centroids (cluster_id, centroid, n_chunks) VALUES (1, ?, 1)",
+        [c1.tobytes()],
+    )
 
-    StalenessStage(conn=conn, data_dir=data_dir,
-                   collection_configs=cfg.collections,
-                   reference_time=REF_TIME).run()
+    StalenessStage(conn=conn, data_dir=data_dir, collection_configs=cfg.collections, reference_time=REF_TIME).run()
 
     return conn, data_dir
 
@@ -83,6 +94,7 @@ def _setup(tmp_path: Path):
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
+
 
 def test_report_file_created(tmp_path):
     conn, data_dir = _setup(tmp_path)
@@ -104,8 +116,16 @@ def test_report_top_level_keys(tmp_path):
     conn, data_dir = _setup(tmp_path)
     out = ReportStage(conn=conn, data_dir=data_dir, run_id=RUN_ID).run()
     doc = json.loads(out.read_text())
-    for key in ("run_id", "generated_at", "corpus_info", "calibration",
-                 "summary", "dedup_groups", "contradictions", "staleness"):
+    for key in (
+        "run_id",
+        "generated_at",
+        "corpus_info",
+        "calibration",
+        "summary",
+        "dedup_groups",
+        "contradictions",
+        "staleness",
+    ):
         assert key in doc, f"missing key: {key}"
     conn.close()
 
@@ -180,8 +200,15 @@ def test_staleness_entry_has_required_fields(tmp_path):
     out = ReportStage(conn=conn, data_dir=data_dir, run_id=RUN_ID).run()
     doc = json.loads(out.read_text())
     for entry in doc["staleness"]:
-        for field in ("chunk_id", "collection", "text", "staleness_score",
-                      "staleness_label", "staleness_components", "is_superseded"):
+        for field in (
+            "chunk_id",
+            "collection",
+            "text",
+            "staleness_score",
+            "staleness_label",
+            "staleness_components",
+            "is_superseded",
+        ):
             assert field in entry, f"missing field {field!r} in staleness entry"
     conn.close()
 
@@ -192,8 +219,13 @@ def test_staleness_components_has_all_keys(tmp_path):
     doc = json.loads(out.read_text())
     for entry in doc["staleness"]:
         comp = entry["staleness_components"]
-        for key in ("age_decay", "cluster_drift", "contradiction_evidence",
-                    "supersession_evidence", "retrieval_abandonment"):
+        for key in (
+            "age_decay",
+            "cluster_drift",
+            "contradiction_evidence",
+            "supersession_evidence",
+            "retrieval_abandonment",
+        ):
             assert key in comp, f"missing component {key!r}"
     conn.close()
 

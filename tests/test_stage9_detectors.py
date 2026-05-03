@@ -26,6 +26,7 @@ RUN_ID = "run-detectors"
 # Unit tests for pure detector functions
 # ---------------------------------------------------------------------------
 
+
 def test_numeric_contradiction_different_numbers():
     text_a = "The price of the widget is 100 dollars per unit"
     text_b = "The price of the widget is 200 dollars per unit"
@@ -88,6 +89,7 @@ def test_version_no_contradiction_low_context_similarity():
 # Integration tests against DuckDB
 # ---------------------------------------------------------------------------
 
+
 def _make_corpus(corpus_dir: Path, chunks: list) -> None:
     (corpus_dir / "docs.json").write_text(json.dumps(chunks))
 
@@ -109,22 +111,31 @@ def _base_vec(dim: int = DIM) -> list[float]:
 def _ingest_and_cluster(conn, corpus_dir, data_dir, chunks):
     _make_corpus(corpus_dir, chunks)
     cfg = _cfg(corpus_dir)
-    IngestStage(conn=conn, adapter=LocalFixtureAdapter(corpus_dir),
-                config=cfg, data_dir=data_dir).run(RUN_ID)
+    IngestStage(conn=conn, adapter=LocalFixtureAdapter(corpus_dir), config=cfg, data_dir=data_dir).run(RUN_ID)
     CalibrateStage(conn=conn, data_dir=data_dir).run(scan_run_id=RUN_ID)
     # Assign all chunks to cluster 0
     conn.execute("UPDATE chunks SET cluster_id = 0 WHERE deleted_at IS NULL")
 
 
 def test_numeric_detector_finds_contradiction(tmp_path):
-    corpus_dir = tmp_path / "corpus"; corpus_dir.mkdir()
-    data_dir = tmp_path / "data"; data_dir.mkdir()
+    corpus_dir = tmp_path / "corpus"
+    corpus_dir.mkdir()
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
 
     chunks = [
-        {"id": "a", "text": "The price of the widget is 100 dollars per unit",
-         "embedding": _base_vec(), "metadata": {"created_at": "2024-01-01T00:00:00Z"}},
-        {"id": "b", "text": "The price of the widget is 200 dollars per unit",
-         "embedding": _base_vec(), "metadata": {"created_at": "2024-01-01T00:00:00Z"}},
+        {
+            "id": "a",
+            "text": "The price of the widget is 100 dollars per unit",
+            "embedding": _base_vec(),
+            "metadata": {"created_at": "2024-01-01T00:00:00Z"},
+        },
+        {
+            "id": "b",
+            "text": "The price of the widget is 200 dollars per unit",
+            "embedding": _base_vec(),
+            "metadata": {"created_at": "2024-01-01T00:00:00Z"},
+        },
     ]
     conn = open_db(data_dir)
     _ingest_and_cluster(conn, corpus_dir, data_dir, chunks)
@@ -138,14 +149,24 @@ def test_numeric_detector_finds_contradiction(tmp_path):
 
 
 def test_numeric_detector_no_contradictions_same_numbers(tmp_path):
-    corpus_dir = tmp_path / "corpus"; corpus_dir.mkdir()
-    data_dir = tmp_path / "data"; data_dir.mkdir()
+    corpus_dir = tmp_path / "corpus"
+    corpus_dir.mkdir()
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
 
     chunks = [
-        {"id": "a", "text": "The product costs 50 euros at checkout",
-         "embedding": _base_vec(), "metadata": {"created_at": "2024-01-01T00:00:00Z"}},
-        {"id": "b", "text": "The product costs 50 euros including VAT",
-         "embedding": _base_vec(), "metadata": {"created_at": "2024-01-01T00:00:00Z"}},
+        {
+            "id": "a",
+            "text": "The product costs 50 euros at checkout",
+            "embedding": _base_vec(),
+            "metadata": {"created_at": "2024-01-01T00:00:00Z"},
+        },
+        {
+            "id": "b",
+            "text": "The product costs 50 euros including VAT",
+            "embedding": _base_vec(),
+            "metadata": {"created_at": "2024-01-01T00:00:00Z"},
+        },
     ]
     conn = open_db(data_dir)
     _ingest_and_cluster(conn, corpus_dir, data_dir, chunks)
@@ -157,20 +178,29 @@ def test_numeric_detector_no_contradictions_same_numbers(tmp_path):
 
 def test_numeric_detector_skips_noise_chunks(tmp_path):
     """Chunks without cluster_id (noise) are excluded from candidate pairs."""
-    corpus_dir = tmp_path / "corpus"; corpus_dir.mkdir()
-    data_dir = tmp_path / "data"; data_dir.mkdir()
+    corpus_dir = tmp_path / "corpus"
+    corpus_dir.mkdir()
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
 
     chunks = [
-        {"id": "a", "text": "The price is 100 dollars per item right here",
-         "embedding": _base_vec(), "metadata": {"created_at": "2024-01-01T00:00:00Z"}},
-        {"id": "b", "text": "The price is 200 dollars per item right here",
-         "embedding": _base_vec(), "metadata": {"created_at": "2024-01-01T00:00:00Z"}},
+        {
+            "id": "a",
+            "text": "The price is 100 dollars per item right here",
+            "embedding": _base_vec(),
+            "metadata": {"created_at": "2024-01-01T00:00:00Z"},
+        },
+        {
+            "id": "b",
+            "text": "The price is 200 dollars per item right here",
+            "embedding": _base_vec(),
+            "metadata": {"created_at": "2024-01-01T00:00:00Z"},
+        },
     ]
     conn = open_db(data_dir)
     _make_corpus(corpus_dir, chunks)
     cfg = _cfg(corpus_dir)
-    IngestStage(conn=conn, adapter=LocalFixtureAdapter(corpus_dir),
-                config=cfg, data_dir=data_dir).run(RUN_ID)
+    IngestStage(conn=conn, adapter=LocalFixtureAdapter(corpus_dir), config=cfg, data_dir=data_dir).run(RUN_ID)
     CalibrateStage(conn=conn, data_dir=data_dir).run(scan_run_id=RUN_ID)
     # Leave cluster_id = NULL (noise)
 
@@ -181,40 +211,56 @@ def test_numeric_detector_skips_noise_chunks(tmp_path):
 
 
 def test_numeric_detector_idempotent(tmp_path):
-    corpus_dir = tmp_path / "corpus"; corpus_dir.mkdir()
-    data_dir = tmp_path / "data"; data_dir.mkdir()
+    corpus_dir = tmp_path / "corpus"
+    corpus_dir.mkdir()
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
 
     chunks = [
-        {"id": "a", "text": "The price of the widget is 100 dollars per unit",
-         "embedding": _base_vec(), "metadata": {"created_at": "2024-01-01T00:00:00Z"}},
-        {"id": "b", "text": "The price of the widget is 200 dollars per unit",
-         "embedding": _base_vec(), "metadata": {"created_at": "2024-01-01T00:00:00Z"}},
+        {
+            "id": "a",
+            "text": "The price of the widget is 100 dollars per unit",
+            "embedding": _base_vec(),
+            "metadata": {"created_at": "2024-01-01T00:00:00Z"},
+        },
+        {
+            "id": "b",
+            "text": "The price of the widget is 200 dollars per unit",
+            "embedding": _base_vec(),
+            "metadata": {"created_at": "2024-01-01T00:00:00Z"},
+        },
     ]
     conn = open_db(data_dir)
     _ingest_and_cluster(conn, corpus_dir, data_dir, chunks)
 
     det = NumericContradictionDetector(conn=conn, scan_run_id=RUN_ID)
     det.run()
-    count_1 = conn.execute(
-        "SELECT COUNT(*) FROM contradictions WHERE detector = 'numeric'"
-    ).fetchone()[0]
+    count_1 = conn.execute("SELECT COUNT(*) FROM contradictions WHERE detector = 'numeric'").fetchone()[0]
     det.run()
-    count_2 = conn.execute(
-        "SELECT COUNT(*) FROM contradictions WHERE detector = 'numeric'"
-    ).fetchone()[0]
+    count_2 = conn.execute("SELECT COUNT(*) FROM contradictions WHERE detector = 'numeric'").fetchone()[0]
     assert count_1 == count_2 == 1
     conn.close()
 
 
 def test_version_detector_finds_contradiction(tmp_path):
-    corpus_dir = tmp_path / "corpus"; corpus_dir.mkdir()
-    data_dir = tmp_path / "data"; data_dir.mkdir()
+    corpus_dir = tmp_path / "corpus"
+    corpus_dir.mkdir()
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
 
     chunks = [
-        {"id": "a", "text": "The software requires Python 3.9 to run properly on this system",
-         "embedding": _base_vec(), "metadata": {"created_at": "2024-01-01T00:00:00Z"}},
-        {"id": "b", "text": "The software requires Python 3.11 to run properly on this system",
-         "embedding": _base_vec(), "metadata": {"created_at": "2024-01-01T00:00:00Z"}},
+        {
+            "id": "a",
+            "text": "The software requires Python 3.9 to run properly on this system",
+            "embedding": _base_vec(),
+            "metadata": {"created_at": "2024-01-01T00:00:00Z"},
+        },
+        {
+            "id": "b",
+            "text": "The software requires Python 3.11 to run properly on this system",
+            "embedding": _base_vec(),
+            "metadata": {"created_at": "2024-01-01T00:00:00Z"},
+        },
     ]
     conn = open_db(data_dir)
     _ingest_and_cluster(conn, corpus_dir, data_dir, chunks)
@@ -228,14 +274,24 @@ def test_version_detector_finds_contradiction(tmp_path):
 
 
 def test_version_detector_no_contradictions_no_versions(tmp_path):
-    corpus_dir = tmp_path / "corpus"; corpus_dir.mkdir()
-    data_dir = tmp_path / "data"; data_dir.mkdir()
+    corpus_dir = tmp_path / "corpus"
+    corpus_dir.mkdir()
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
 
     chunks = [
-        {"id": "a", "text": "Install the library using pip install library",
-         "embedding": _base_vec(), "metadata": {"created_at": "2024-01-01T00:00:00Z"}},
-        {"id": "b", "text": "Install the library using conda install library",
-         "embedding": _base_vec(), "metadata": {"created_at": "2024-01-01T00:00:00Z"}},
+        {
+            "id": "a",
+            "text": "Install the library using pip install library",
+            "embedding": _base_vec(),
+            "metadata": {"created_at": "2024-01-01T00:00:00Z"},
+        },
+        {
+            "id": "b",
+            "text": "Install the library using conda install library",
+            "embedding": _base_vec(),
+            "metadata": {"created_at": "2024-01-01T00:00:00Z"},
+        },
     ]
     conn = open_db(data_dir)
     _ingest_and_cluster(conn, corpus_dir, data_dir, chunks)
@@ -246,26 +302,32 @@ def test_version_detector_no_contradictions_no_versions(tmp_path):
 
 
 def test_version_detector_idempotent(tmp_path):
-    corpus_dir = tmp_path / "corpus"; corpus_dir.mkdir()
-    data_dir = tmp_path / "data"; data_dir.mkdir()
+    corpus_dir = tmp_path / "corpus"
+    corpus_dir.mkdir()
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
 
     chunks = [
-        {"id": "a", "text": "The software requires Python 3.9 to run on this system",
-         "embedding": _base_vec(), "metadata": {"created_at": "2024-01-01T00:00:00Z"}},
-        {"id": "b", "text": "The software requires Python 3.11 to run on this system",
-         "embedding": _base_vec(), "metadata": {"created_at": "2024-01-01T00:00:00Z"}},
+        {
+            "id": "a",
+            "text": "The software requires Python 3.9 to run on this system",
+            "embedding": _base_vec(),
+            "metadata": {"created_at": "2024-01-01T00:00:00Z"},
+        },
+        {
+            "id": "b",
+            "text": "The software requires Python 3.11 to run on this system",
+            "embedding": _base_vec(),
+            "metadata": {"created_at": "2024-01-01T00:00:00Z"},
+        },
     ]
     conn = open_db(data_dir)
     _ingest_and_cluster(conn, corpus_dir, data_dir, chunks)
 
     det = VersionContradictionDetector(conn=conn, scan_run_id=RUN_ID)
     det.run()
-    count_1 = conn.execute(
-        "SELECT COUNT(*) FROM contradictions WHERE detector = 'version'"
-    ).fetchone()[0]
+    count_1 = conn.execute("SELECT COUNT(*) FROM contradictions WHERE detector = 'version'").fetchone()[0]
     det.run()
-    count_2 = conn.execute(
-        "SELECT COUNT(*) FROM contradictions WHERE detector = 'version'"
-    ).fetchone()[0]
+    count_2 = conn.execute("SELECT COUNT(*) FROM contradictions WHERE detector = 'version'").fetchone()[0]
     assert count_1 == count_2 == 1
     conn.close()

@@ -33,8 +33,8 @@ KNOWN_MODELS: dict[int, list[str]] = {
 # Conservative per-model defaults (for small corpora where distributions are noisy)
 _MODEL_DEFAULTS: dict[int, tuple[float, float, float]] = {
     # dim: (dedup_threshold, contradiction_candidate_threshold, cluster_density)
-    384:  (0.950, 0.850, 0.750),
-    768:  (0.930, 0.820, 0.720),
+    384: (0.950, 0.850, 0.750),
+    768: (0.930, 0.820, 0.720),
     1024: (0.920, 0.800, 0.700),
     1536: (0.900, 0.780, 0.680),
     3072: (0.880, 0.760, 0.650),
@@ -94,8 +94,7 @@ class CalibrateStage:
     def run(self, scan_run_id: str) -> dict:
         """Run calibration. Returns threshold dict."""
         rows = self.conn.execute(
-            "SELECT chunk_id, embedding_offset FROM chunks "
-            "WHERE deleted_at IS NULL AND embedding_offset >= 0"
+            "SELECT chunk_id, embedding_offset FROM chunks WHERE deleted_at IS NULL AND embedding_offset >= 0"
         ).fetchall()
 
         meta_path = self.data_dir / "embeddings.meta.json"
@@ -110,14 +109,9 @@ class CalibrateStage:
         corpus_size = len(rows)
 
         if corpus_size < self.small_corpus_threshold:
-            thresholds = self._small_corpus_path(dim, corpus_size, rows, scan_run_id)
+            return self._small_corpus_path(dim, corpus_size, rows, scan_run_id)
         else:
-            thresholds = self._hnsw_path(rows, meta, scan_run_id)
-
-        # Re-tune NLI threshold from human feedback (no-op if too few labels)
-        nli_t = retune_nli_threshold(self.conn)
-        thresholds["nli_score_threshold"] = nli_t
-        return thresholds
+            return self._hnsw_path(rows, meta, scan_run_id)
 
     # ------------------------------------------------------------------
     # Internal: small corpus path
@@ -139,8 +133,12 @@ class CalibrateStage:
             "model_family": KNOWN_MODELS.get(dim, ["unknown"]),
         }
         self._persist(
-            scan_run_id, _sample_hash(chunk_ids[:SAMPLE_SIZE]),
-            dedup, contradiction, density, distributions,
+            scan_run_id,
+            _sample_hash(chunk_ids[:SAMPLE_SIZE]),
+            dedup,
+            contradiction,
+            density,
+            distributions,
         )
         log.info(
             "calibration_complete",
@@ -186,11 +184,7 @@ class CalibrateStage:
         # Sample
         N = min(SAMPLE_SIZE, corpus_size)
         rng = np.random.default_rng(42)
-        sample_idx = (
-            rng.choice(corpus_size, size=N, replace=False)
-            if N < corpus_size
-            else np.arange(N)
-        )
+        sample_idx = rng.choice(corpus_size, size=N, replace=False) if N < corpus_size else np.arange(N)
         sample_embs = all_embs[sample_idx].astype(np.float32)
         sample_ids = [chunk_ids[i] for i in sample_idx]
 
@@ -231,8 +225,12 @@ class CalibrateStage:
             "neighbor_p995": dedup,
         }
         self._persist(
-            scan_run_id, _sample_hash(sample_ids),
-            dedup, contradiction, density, distributions,
+            scan_run_id,
+            _sample_hash(sample_ids),
+            dedup,
+            contradiction,
+            density,
+            distributions,
         )
         log.info(
             "calibration_complete",
@@ -268,17 +266,13 @@ class CalibrateStage:
         )
 
     def _last_distributions(self) -> Optional[dict]:
-        row = self.conn.execute(
-            "SELECT distributions FROM calibration ORDER BY rowid DESC LIMIT 1"
-        ).fetchone()
+        row = self.conn.execute("SELECT distributions FROM calibration ORDER BY rowid DESC LIMIT 1").fetchone()
         if row is None or row[0] is None:
             return None
         return json.loads(row[0])
 
     def _count_active_chunks(self) -> int:
-        row = self.conn.execute(
-            "SELECT COUNT(*) FROM chunks WHERE deleted_at IS NULL"
-        ).fetchone()
+        row = self.conn.execute("SELECT COUNT(*) FROM chunks WHERE deleted_at IS NULL").fetchone()
         return row[0] if row else 0
 
     @staticmethod
@@ -308,8 +302,8 @@ def retune_nli_threshold(conn: duckdb.DuckDBPyConnection) -> float:
     ).fetchall()
 
     confirmed = [float(r[0]) for r in rows if r[1] == "confirmed"]
-    false_pos  = [float(r[0]) for r in rows if r[1] == "false_positive"]
-    n_labeled  = len(confirmed) + len(false_pos)
+    false_pos = [float(r[0]) for r in rows if r[1] == "false_positive"]
+    n_labeled = len(confirmed) + len(false_pos)
 
     if n_labeled < NLI_FEEDBACK_MIN_LABELS:
         log.info(
@@ -327,12 +321,12 @@ def retune_nli_threshold(conn: duckdb.DuckDBPyConnection) -> float:
     beta = 0.5  # F0.5 — precision-weighted
 
     for t in sorted(set(all_scores)):
-        tp = sum(1 for s, l in zip(all_scores, all_labels) if s >= t and l == 1)
-        fp = sum(1 for s, l in zip(all_scores, all_labels) if s >= t and l == 0)
+        tp = sum(1 for s, lbl in zip(all_scores, all_labels) if s >= t and lbl == 1)
+        fp = sum(1 for s, lbl in zip(all_scores, all_labels) if s >= t and lbl == 0)
         if tp + fp == 0:
             continue
         precision = tp / (tp + fp)
-        recall    = tp / len(confirmed) if confirmed else 0.0
+        recall = tp / len(confirmed) if confirmed else 0.0
         if precision + recall == 0:
             continue
         f = (1 + beta**2) * precision * recall / (beta**2 * precision + recall)
@@ -341,9 +335,7 @@ def retune_nli_threshold(conn: duckdb.DuckDBPyConnection) -> float:
             best_t = float(t)
 
     # Persist threshold into the latest calibration row's distributions JSON
-    cal_row = conn.execute(
-        "SELECT rowid, distributions FROM calibration ORDER BY rowid DESC LIMIT 1"
-    ).fetchone()
+    cal_row = conn.execute("SELECT rowid, distributions FROM calibration ORDER BY rowid DESC LIMIT 1").fetchone()
     if cal_row is not None:
         rowid, dist_json = cal_row
         dist = json.loads(dist_json) if dist_json else {}
@@ -377,9 +369,7 @@ def retune_nli_threshold(conn: duckdb.DuckDBPyConnection) -> float:
 
 def load_nli_score_threshold(conn: duckdb.DuckDBPyConnection) -> float:
     """Return the calibrated NLI score threshold, or 0.5 if not yet tuned."""
-    row = conn.execute(
-        "SELECT distributions FROM calibration ORDER BY rowid DESC LIMIT 1"
-    ).fetchone()
+    row = conn.execute("SELECT distributions FROM calibration ORDER BY rowid DESC LIMIT 1").fetchone()
     if row is None or row[0] is None:
         return NLI_DEFAULT_THRESHOLD
     dist = json.loads(row[0])
@@ -387,15 +377,17 @@ def load_nli_score_threshold(conn: duckdb.DuckDBPyConnection) -> float:
 
 
 def load_latest_calibration(conn: duckdb.DuckDBPyConnection) -> Optional[dict]:
-    """Load the most recent calibration thresholds from DuckDB."""
+    """Load the most recent calibration thresholds from DuckDB"""
     row = conn.execute(
-        "SELECT dedup_threshold, contradiction_candidate_threshold, cluster_min_density "
+        "SELECT dedup_threshold, contradiction_candidate_threshold, cluster_min_density, distributions "
         "FROM calibration ORDER BY rowid DESC LIMIT 1"
     ).fetchone()
     if row is None:
         return None
+    dist = json.loads(row[3]) if row[3] else {}
     return {
         "dedup_cosine_threshold": row[0],
         "contradiction_candidate_threshold": row[1],
         "cluster_min_density": row[2],
+        "nli_score_threshold": float(dist.get("nli_score_threshold", NLI_DEFAULT_THRESHOLD)),
     }

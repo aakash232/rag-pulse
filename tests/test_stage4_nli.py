@@ -1,10 +1,10 @@
 """Tests for Stage 4: NLI Contradiction Detection (Detector A)."""
 
 import json
+from pathlib import Path
 
 import numpy as np
 import pytest
-from pathlib import Path
 
 from pulse_scan.adapters.fixture import LocalFixtureAdapter
 from pulse_scan.config import ClusteringConfig, CollectionConfig, PulseConfig, StoreConfig
@@ -14,10 +14,10 @@ from pulse_scan.stages.stage05_calibrate import CalibrateStage
 from pulse_scan.stages.stage2_cluster import ClusterStage
 from pulse_scan.stages.stage4_nli import NLIContradictionStage
 
-
 # ---------------------------------------------------------------------------
 # Mock predict functions
 # ---------------------------------------------------------------------------
+
 
 def _always_contradict(pairs):
     return [{"contradiction": 0.92, "entailment": 0.04, "neutral": 0.04}] * len(pairs)
@@ -39,6 +39,7 @@ def _forward_only_contradict(pairs):
 # ---------------------------------------------------------------------------
 # Fixture helpers
 # ---------------------------------------------------------------------------
+
 
 def _cfg(corpus_dir: Path) -> PulseConfig:
     return PulseConfig(
@@ -62,12 +63,14 @@ def _make_cluster_fixture(corpus_dir: Path, n_per_cluster: int = 8, dim: int = 8
         base[axis] = 1.0
         for i in range(n_per_cluster):
             v = base + rng.standard_normal(dim).astype(np.float32) * 0.02
-            chunks.append({
-                "id": f"cl{cl}-{i:03d}",
-                "text": f"cluster {cl} chunk {i}. " * 5,
-                "embedding": _unit(v),
-                "metadata": {"created_at": "2023-01-01T00:00:00Z"},
-            })
+            chunks.append(
+                {
+                    "id": f"cl{cl}-{i:03d}",
+                    "text": f"cluster {cl} chunk {i}. " * 5,
+                    "embedding": _unit(v),
+                    "metadata": {"created_at": "2023-01-01T00:00:00Z"},
+                }
+            )
 
     (corpus_dir / "test.json").write_text(json.dumps(chunks))
 
@@ -75,12 +78,11 @@ def _make_cluster_fixture(corpus_dir: Path, n_per_cluster: int = 8, dim: int = 8
 def _run_pipeline(conn, corpus_dir, data_dir, min_cluster_size=5):
     """Run stages 0, 0.5, 2 to populate cluster assignments."""
     adapter = LocalFixtureAdapter(corpus_dir)
-    IngestStage(conn=conn, adapter=adapter, config=_cfg(corpus_dir), data_dir=data_dir).run(
-        run_id="run-001"
-    )
+    IngestStage(conn=conn, adapter=adapter, config=_cfg(corpus_dir), data_dir=data_dir).run(run_id="run-001")
     CalibrateStage(conn=conn, data_dir=data_dir).run(scan_run_id="run-001")
     ClusterStage(
-        conn=conn, data_dir=data_dir,
+        conn=conn,
+        data_dir=data_dir,
         clustering_config=ClusteringConfig(min_cluster_size=min_cluster_size),
     ).run()
 
@@ -88,6 +90,7 @@ def _run_pipeline(conn, corpus_dir, data_dir, min_cluster_size=5):
 # ---------------------------------------------------------------------------
 # Core detection
 # ---------------------------------------------------------------------------
+
 
 def test_nli_records_contradictions_when_score_high(tmp_path):
     """NLI records all candidate pairs as contradictions when predict_fn always returns high score."""
@@ -101,7 +104,9 @@ def test_nli_records_contradictions_when_score_high(tmp_path):
     _run_pipeline(conn, corpus_dir, data_dir)
 
     result = NLIContradictionStage(
-        conn=conn, data_dir=data_dir, scan_run_id="run-001",
+        conn=conn,
+        data_dir=data_dir,
+        scan_run_id="run-001",
         _predict_fn=_always_contradict,
     ).run()
 
@@ -122,7 +127,9 @@ def test_nli_no_contradictions_when_score_low(tmp_path):
     _run_pipeline(conn, corpus_dir, data_dir)
 
     result = NLIContradictionStage(
-        conn=conn, data_dir=data_dir, scan_run_id="run-001",
+        conn=conn,
+        data_dir=data_dir,
+        scan_run_id="run-001",
         _predict_fn=_never_contradict,
     ).run()
 
@@ -144,13 +151,13 @@ def test_nli_cold_start_state(tmp_path):
     _run_pipeline(conn, corpus_dir, data_dir)
 
     NLIContradictionStage(
-        conn=conn, data_dir=data_dir, scan_run_id="run-001",
+        conn=conn,
+        data_dir=data_dir,
+        scan_run_id="run-001",
         _predict_fn=_always_contradict,
     ).run()
 
-    rows = conn.execute(
-        "SELECT calibration_state, calibrated_confidence FROM contradictions"
-    ).fetchall()
+    rows = conn.execute("SELECT calibration_state, calibrated_confidence FROM contradictions").fetchall()
     assert len(rows) > 0
     for state, confidence in rows:
         assert state == "uncalibrated"
@@ -170,7 +177,9 @@ def test_nli_detector_label_is_nli(tmp_path):
     _run_pipeline(conn, corpus_dir, data_dir)
 
     NLIContradictionStage(
-        conn=conn, data_dir=data_dir, scan_run_id="run-001",
+        conn=conn,
+        data_dir=data_dir,
+        scan_run_id="run-001",
         _predict_fn=_always_contradict,
     ).run()
 
@@ -182,6 +191,7 @@ def test_nli_detector_label_is_nli(tmp_path):
 # ---------------------------------------------------------------------------
 # Direction logic
 # ---------------------------------------------------------------------------
+
 
 def test_nli_direction_both_when_both_score_high(tmp_path):
     """When both forward and backward score > 0.5, direction='both' with max score."""
@@ -195,13 +205,13 @@ def test_nli_direction_both_when_both_score_high(tmp_path):
     _run_pipeline(conn, corpus_dir, data_dir)
 
     NLIContradictionStage(
-        conn=conn, data_dir=data_dir, scan_run_id="run-001",
+        conn=conn,
+        data_dir=data_dir,
+        scan_run_id="run-001",
         _predict_fn=_always_contradict,
     ).run()
 
-    directions = set(
-        r[0] for r in conn.execute("SELECT DISTINCT direction FROM contradictions").fetchall()
-    )
+    directions = set(r[0] for r in conn.execute("SELECT DISTINCT direction FROM contradictions").fetchall())
     assert "both" in directions
     conn.close()
 
@@ -223,14 +233,14 @@ def test_nli_direction_single_when_only_forward(tmp_path):
     # making the call-count based mock reliable.
     _forward_only_contradict.calls = 0
     NLIContradictionStage(
-        conn=conn, data_dir=data_dir, scan_run_id="run-001",
+        conn=conn,
+        data_dir=data_dir,
+        scan_run_id="run-001",
         scan_config=ScanConfig(nli_batch_size=10_000),
         _predict_fn=_forward_only_contradict,
     ).run()
 
-    directions = set(
-        r[0] for r in conn.execute("SELECT DISTINCT direction FROM contradictions").fetchall()
-    )
+    directions = set(r[0] for r in conn.execute("SELECT DISTINCT direction FROM contradictions").fetchall())
     # Forward only → 'a->b'; backward returns low score so no 'b->a' or 'both'
     assert "a->b" in directions
     assert "both" not in directions
@@ -241,6 +251,7 @@ def test_nli_direction_single_when_only_forward(tmp_path):
 # ---------------------------------------------------------------------------
 # Dedup group exclusion
 # ---------------------------------------------------------------------------
+
 
 def test_nli_skips_dedup_group_pairs(tmp_path):
     """Pairs in the same dedup group are not passed to the NLI model."""
@@ -255,9 +266,7 @@ def test_nli_skips_dedup_group_pairs(tmp_path):
 
     # Get all chunk IDs in cluster 0 so we can block all their pairs via dedup groups
     cluster_0_ids = [
-        r[0] for r in conn.execute(
-            "SELECT chunk_id FROM chunks WHERE cluster_id = 0 AND deleted_at IS NULL"
-        ).fetchall()
+        r[0] for r in conn.execute("SELECT chunk_id FROM chunks WHERE cluster_id = 0 AND deleted_at IS NULL").fetchall()
     ]
     assert len(cluster_0_ids) >= 2
 
@@ -276,7 +285,9 @@ def test_nli_skips_dedup_group_pairs(tmp_path):
         return [{"contradiction": 0.9, "entailment": 0.05, "neutral": 0.05}] * len(pairs)
 
     NLIContradictionStage(
-        conn=conn, data_dir=data_dir, scan_run_id="run-001",
+        conn=conn,
+        data_dir=data_dir,
+        scan_run_id="run-001",
         _predict_fn=_counting_predict,
     ).run()
 
@@ -288,9 +299,7 @@ def test_nli_skips_dedup_group_pairs(tmp_path):
 
     # Simpler check: with all cluster-0 pairs blocked, only cluster-1 and cluster-2 pairs remain
     # Verify contradictions table has no entry where both chunk_a and chunk_b are in cluster 0
-    rows = conn.execute(
-        "SELECT c.chunk_a, c.chunk_b FROM contradictions c"
-    ).fetchall()
+    rows = conn.execute("SELECT c.chunk_a, c.chunk_b FROM contradictions c").fetchall()
     for chunk_a, chunk_b in rows:
         assert not (chunk_a in cluster_0_set and chunk_b in cluster_0_set)
 
@@ -300,6 +309,7 @@ def test_nli_skips_dedup_group_pairs(tmp_path):
 # ---------------------------------------------------------------------------
 # Noise chunk exclusion
 # ---------------------------------------------------------------------------
+
 
 def test_nli_skips_noise_chunks(tmp_path):
     """Chunks with cluster_id=NULL are not included in NLI candidates."""
@@ -313,12 +323,8 @@ def test_nli_skips_noise_chunks(tmp_path):
     _run_pipeline(conn, corpus_dir, data_dir)
 
     # Force a few chunks to NULL cluster_id to simulate noise
-    conn.execute(
-        "UPDATE chunks SET cluster_id = NULL WHERE chunk_id LIKE 'cl0-000' OR chunk_id LIKE 'cl0-001'"
-    )
-    conn.execute(
-        "DELETE FROM clusters WHERE chunk_id LIKE 'cl0-000' OR chunk_id LIKE 'cl0-001'"
-    )
+    conn.execute("UPDATE chunks SET cluster_id = NULL WHERE chunk_id LIKE 'cl0-000' OR chunk_id LIKE 'cl0-001'")
+    conn.execute("DELETE FROM clusters WHERE chunk_id LIKE 'cl0-000' OR chunk_id LIKE 'cl0-001'")
 
     texts_seen = []
 
@@ -327,16 +333,15 @@ def test_nli_skips_noise_chunks(tmp_path):
         return [{"contradiction": 0.9, "entailment": 0.05, "neutral": 0.05}] * len(pairs)
 
     NLIContradictionStage(
-        conn=conn, data_dir=data_dir, scan_run_id="run-001",
+        conn=conn,
+        data_dir=data_dir,
+        scan_run_id="run-001",
         _predict_fn=_capture_predict,
     ).run()
 
     # The noise chunks' texts should never appear in predict_fn inputs
-    noise_ids = {"cl0-000", "cl0-001"}
     noise_texts = set(
-        r[0] for r in conn.execute(
-            "SELECT text FROM chunks WHERE chunk_id IN ('cl0-000', 'cl0-001')"
-        ).fetchall()
+        r[0] for r in conn.execute("SELECT text FROM chunks WHERE chunk_id IN ('cl0-000', 'cl0-001')").fetchall()
     )
     for text_a, text_b in texts_seen:
         assert text_a not in noise_texts
@@ -348,6 +353,7 @@ def test_nli_skips_noise_chunks(tmp_path):
 # ---------------------------------------------------------------------------
 # Idempotency
 # ---------------------------------------------------------------------------
+
 
 def test_nli_idempotent(tmp_path):
     """Running NLI twice for the same scan_run_id gives identical result (not doubled)."""
@@ -361,16 +367,16 @@ def test_nli_idempotent(tmp_path):
     _run_pipeline(conn, corpus_dir, data_dir)
 
     stage = NLIContradictionStage(
-        conn=conn, data_dir=data_dir, scan_run_id="run-001",
+        conn=conn,
+        data_dir=data_dir,
+        scan_run_id="run-001",
         _predict_fn=_always_contradict,
     )
     r1 = stage.run()
     r2 = stage.run()
 
     assert r1 == r2
-    n = conn.execute(
-        "SELECT COUNT(*) FROM contradictions WHERE scan_run_id = 'run-001'"
-    ).fetchone()[0]
+    n = conn.execute("SELECT COUNT(*) FROM contradictions WHERE scan_run_id = 'run-001'").fetchone()[0]
     assert n == r1["contradictions_found"]
     conn.close()
 
@@ -378,6 +384,7 @@ def test_nli_idempotent(tmp_path):
 # ---------------------------------------------------------------------------
 # Edge cases
 # ---------------------------------------------------------------------------
+
 
 def test_nli_skips_when_no_clustered_chunks(tmp_path):
     """If no chunks have cluster_id set, NLI returns zero pairs without error."""
@@ -394,7 +401,9 @@ def test_nli_skips_when_no_clustered_chunks(tmp_path):
     conn.execute("UPDATE chunks SET cluster_id = NULL")
 
     result = NLIContradictionStage(
-        conn=conn, data_dir=data_dir, scan_run_id="run-001",
+        conn=conn,
+        data_dir=data_dir,
+        scan_run_id="run-001",
         _predict_fn=_always_contradict,
     ).run()
 
@@ -420,7 +429,9 @@ def test_nli_respects_allowed_chunk_ids(tmp_path):
         return [{"contradiction": 0.0, "entailment": 1.0, "neutral": 0.0}] * len(pairs)
 
     stage = NLIContradictionStage(
-        conn=conn, data_dir=data_dir, scan_run_id="run-001",
+        conn=conn,
+        data_dir=data_dir,
+        scan_run_id="run-001",
         _predict_fn=_counting_predict,
     )
 
@@ -430,9 +441,7 @@ def test_nli_respects_allowed_chunk_ids(tmp_path):
 
     # Run with only one chunk from cluster 0 allowed
     cluster_0_ids = [
-        r[0] for r in conn.execute(
-            "SELECT chunk_id FROM chunks WHERE cluster_id = 0 AND deleted_at IS NULL"
-        ).fetchall()
+        r[0] for r in conn.execute("SELECT chunk_id FROM chunks WHERE cluster_id = 0 AND deleted_at IS NULL").fetchall()
     ]
     pair_counts.clear()
     stage.run(allowed_chunk_ids={cluster_0_ids[0]})
@@ -455,14 +464,14 @@ def test_nli_raises_without_calibration(tmp_path):
 
     conn = open_db(data_dir)
     adapter = LocalFixtureAdapter(corpus_dir)
-    IngestStage(conn=conn, adapter=adapter, config=_cfg(corpus_dir), data_dir=data_dir).run(
-        run_id="run-001"
-    )
+    IngestStage(conn=conn, adapter=adapter, config=_cfg(corpus_dir), data_dir=data_dir).run(run_id="run-001")
     # Deliberately skip calibration and clustering
 
     with pytest.raises(RuntimeError, match="No calibration found"):
         NLIContradictionStage(
-            conn=conn, data_dir=data_dir, scan_run_id="run-001",
+            conn=conn,
+            data_dir=data_dir,
+            scan_run_id="run-001",
             _predict_fn=_always_contradict,
         ).run()
     conn.close()

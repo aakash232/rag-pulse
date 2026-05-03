@@ -1,5 +1,6 @@
 from datetime import datetime
 from typing import Iterator, Optional, Protocol, runtime_checkable
+
 import numpy as np
 
 from pulse_scan.models import ChunkBatch, CollectionInfo

@@ -143,6 +143,7 @@ class ClusterStage:
         if use_gpu:
             try:
                 from cuml.manifold import UMAP as cuMLUMAP  # type: ignore[import]
+
                 log.info("umap_using_gpu_cuml")
                 return cuMLUMAP(
                     n_components=n_components,
@@ -224,8 +225,7 @@ class ClusterStage:
                     [cluster_id, cid],
                 )
                 self.conn.execute(
-                    "UPDATE chunks SET cluster_id = ? "
-                    "WHERE chunk_id = ? AND deleted_at IS NULL",
+                    "UPDATE chunks SET cluster_id = ? WHERE chunk_id = ? AND deleted_at IS NULL",
                     [cluster_id, cid],
                 )
 
@@ -239,6 +239,6 @@ class ClusterStage:
 
     def _count_active_chunks(self) -> int:
         row = self.conn.execute(
-            "SELECT COUNT(*) FROM chunks WHERE deleted_at IS NULL"
+            "SELECT COUNT(*) FROM chunks WHERE deleted_at IS NULL AND embedding_offset >= 0"
         ).fetchone()
         return row[0] if row else 0

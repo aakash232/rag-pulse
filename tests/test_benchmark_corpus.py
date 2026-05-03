@@ -58,9 +58,9 @@ def test_all_embeddings_are_unit_vectors(corpus):
 def test_near_duplicate_pairs_have_high_cosine(corpus):
     """Lexical and semantic dups must be within dedup detection range."""
     dup_pairs = [
-        ("docs-refund-001", "docs-refund-002"),   # lexical dup
-        ("docs-refund-001", "docs-refund-003"),   # semantic dup
-        ("docs-support-001", "docs-support-002"), # lexical dup
+        ("docs-refund-001", "docs-refund-002"),  # lexical dup
+        ("docs-refund-001", "docs-refund-003"),  # semantic dup
+        ("docs-support-001", "docs-support-002"),  # lexical dup
     ]
     for a, b in dup_pairs:
         sim = _cos(corpus[a]["embedding"], corpus[b]["embedding"])

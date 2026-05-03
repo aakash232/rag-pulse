@@ -1,19 +1,20 @@
 """Tests for Stage 0.5: Calibration."""
 
 import json
+from pathlib import Path
+
 import numpy as np
 import pytest
-from pathlib import Path
 
 from pulse_scan.adapters.fixture import LocalFixtureAdapter
 from pulse_scan.config import CollectionConfig, PulseConfig, StoreConfig
 from pulse_scan.db.schema import open_db
+from pulse_scan.stages.stage0_ingest import IngestStage
 from pulse_scan.stages.stage05_calibrate import (
     CalibrateStage,
-    load_latest_calibration,
     _model_defaults,
+    load_latest_calibration,
 )
-from pulse_scan.stages.stage0_ingest import IngestStage, EmbeddingStore
 
 
 def _make_config(corpus_dir: Path) -> PulseConfig:
@@ -33,6 +34,7 @@ def _ingest(conn, corpus_dir, data_dir):
 # ---------------------------------------------------------------------------
 # Small corpus path (model defaults)
 # ---------------------------------------------------------------------------
+
 
 def test_small_corpus_uses_model_defaults(corpus_dir, data_dir):
     """50 chunks < default threshold → use model defaults for 384d."""
@@ -86,6 +88,7 @@ def test_threshold_ordering(corpus_dir, data_dir):
 # should_run() logic
 # ---------------------------------------------------------------------------
 
+
 def test_should_run_true_on_first_scan(corpus_dir, data_dir):
     conn = open_db(data_dir)
     _ingest(conn, corpus_dir, data_dir)
@@ -114,14 +117,14 @@ def test_should_run_true_after_50pct_growth(corpus_dir, data_dir):
     # Directly insert extra chunk rows to simulate growth beyond 50%
     # 5 existing active chunks → need >2.5 more → insert 4 more
     from datetime import datetime, timezone
+
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     for i in range(4):
         conn.execute(
             "INSERT INTO chunks (store_id, collection, chunk_id, text, content_hash, "
             "embedding_offset, first_seen_by_pulse, last_seen_by_pulse, version) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            ["fixture:test", "docs", f"extra-{i}", f"extra chunk {i}", f"hash{i}",
-             -1, now, now, 1],
+            ["fixture:test", "docs", f"extra-{i}", f"extra chunk {i}", f"hash{i}", -1, now, now, 1],
         )
     assert cal.should_run() is True
     conn.close()
@@ -130,6 +133,7 @@ def test_should_run_true_after_50pct_growth(corpus_dir, data_dir):
 # ---------------------------------------------------------------------------
 # load_latest_calibration helper
 # ---------------------------------------------------------------------------
+
 
 def test_load_latest_calibration_returns_none_when_none(data_dir):
     conn = open_db(data_dir)
@@ -148,12 +152,15 @@ def test_load_latest_calibration_returns_thresholds(corpus_dir, data_dir):
     assert "dedup_cosine_threshold" in result
     assert "contradiction_candidate_threshold" in result
     assert "cluster_min_density" in result
+    assert "nli_score_threshold" in result
+    assert isinstance(result["nli_score_threshold"], float)
     conn.close()
 
 
 # ---------------------------------------------------------------------------
 # HNSW path (large corpus)
 # ---------------------------------------------------------------------------
+
 
 def _make_large_fixture(corpus_dir: Path, n_chunks: int = 600, dim: int = 4) -> None:
     """Write a single-collection fixture with n_chunks random chunks."""
@@ -162,13 +169,16 @@ def _make_large_fixture(corpus_dir: Path, n_chunks: int = 600, dim: int = 4) -> 
     for i in range(n_chunks):
         v = rng.standard_normal(dim).astype(float)
         v /= float(np.linalg.norm(v))
-        chunks.append({
-            "id": f"big-{i:04d}",
-            "text": f"Large corpus chunk number {i}.",
-            "embedding": v.tolist(),
-            "metadata": {"created_at": "2024-01-01T00:00:00Z"},
-        })
+        chunks.append(
+            {
+                "id": f"big-{i:04d}",
+                "text": f"Large corpus chunk number {i}.",
+                "embedding": v.tolist(),
+                "metadata": {"created_at": "2024-01-01T00:00:00Z"},
+            }
+        )
     import json
+
     (corpus_dir / "docs.json").write_text(json.dumps(chunks))
 
 

@@ -211,9 +211,7 @@ def load_into_chroma(
 
 def write_config(collection_names: list[str]) -> None:
     col_lines = "\n".join(
-        f"  - name: {name}\n"
-        f"    timestamp_field: created_at\n"
-        f"    half_life_days: {HALF_LIFE_DAYS}"
+        f"  - name: {name}\n    timestamp_field: created_at\n    half_life_days: {HALF_LIFE_DAYS}"
         for name in collection_names
     )
 

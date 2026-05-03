@@ -1,8 +1,8 @@
 import json
 import os
-import pytest
-import numpy as np
 from pathlib import Path
+
+import pytest
 
 # Must be set before chromadb (and its opentelemetry/protobuf deps) are first
 # imported.  On Python 3.14 the protobuf C extension has a compatibility issue

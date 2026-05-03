@@ -55,12 +55,8 @@ class ReportStage:
     # ------------------------------------------------------------------
 
     def _corpus_info(self) -> dict:
-        total = self.conn.execute(
-            "SELECT COUNT(*) FROM chunks"
-        ).fetchone()[0]
-        active = self.conn.execute(
-            "SELECT COUNT(*) FROM chunks WHERE deleted_at IS NULL"
-        ).fetchone()[0]
+        total = self.conn.execute("SELECT COUNT(*) FROM chunks").fetchone()[0]
+        active = self.conn.execute("SELECT COUNT(*) FROM chunks WHERE deleted_at IS NULL").fetchone()[0]
         collections = self.conn.execute(
             "SELECT collection, COUNT(*) AS n "
             "FROM chunks WHERE deleted_at IS NULL "
@@ -70,9 +66,7 @@ class ReportStage:
             "store_type": self.store_type,
             "total_chunks": total,
             "active_chunks": active,
-            "collections": [
-                {"name": col, "chunk_count": n} for col, n in collections
-            ],
+            "collections": [{"name": col, "chunk_count": n} for col, n in collections],
         }
 
     def _calibration(self) -> Optional[dict]:
@@ -89,9 +83,7 @@ class ReportStage:
         }
 
     def _summary(self) -> dict:
-        n_groups = self.conn.execute(
-            "SELECT COUNT(*) FROM dedup_groups"
-        ).fetchone()[0]
+        n_groups = self.conn.execute("SELECT COUNT(*) FROM dedup_groups").fetchone()[0]
         n_in_groups = self.conn.execute(
             "SELECT COUNT(*) FROM ("
             "  SELECT json_each.value FROM dedup_groups, "
@@ -132,8 +124,7 @@ class ReportStage:
             # Enrich with chunk text + metadata
             placeholders = ", ".join("?" * len(member_ids))
             chunk_rows = self.conn.execute(
-                f"SELECT chunk_id, text, collection, resolved_timestamp "
-                f"FROM chunks WHERE chunk_id IN ({placeholders})",
+                f"SELECT chunk_id, text, collection, resolved_timestamp FROM chunks WHERE chunk_id IN ({placeholders})",
                 member_ids,
             ).fetchall()
             chunk_map = {r[0]: r for r in chunk_rows}
@@ -149,12 +140,14 @@ class ReportStage:
                 }
                 for cid in member_ids
             ]
-            result.append({
-                "group_id": group_id,
-                "canonical_chunk_id": canonical,
-                "detection_channels": json.loads(channels_json),
-                "members": members,
-            })
+            result.append(
+                {
+                    "group_id": group_id,
+                    "canonical_chunk_id": canonical,
+                    "detection_channels": json.loads(channels_json),
+                    "members": members,
+                }
+            )
         return result
 
     def _contradictions(self) -> list:
@@ -181,19 +174,21 @@ class ReportStage:
 
         result = []
         for chunk_a, chunk_b, detector, raw_score, cal_conf, cal_state, direction, _ in rows:
-            result.append({
-                "chunk_a_id": chunk_a,
-                "chunk_b_id": chunk_b,
-                "chunk_a_text": chunk_map.get(chunk_a, (None,))[0],
-                "chunk_b_text": chunk_map.get(chunk_b, (None,))[0],
-                "chunk_a_collection": chunk_map.get(chunk_a, (None, None))[1],
-                "chunk_b_collection": chunk_map.get(chunk_b, (None, None))[1],
-                "detector": detector,
-                "raw_score": raw_score,
-                "calibrated_confidence": cal_conf,
-                "calibration_state": cal_state,
-                "direction": direction,
-            })
+            result.append(
+                {
+                    "chunk_a_id": chunk_a,
+                    "chunk_b_id": chunk_b,
+                    "chunk_a_text": chunk_map.get(chunk_a, (None,))[0],
+                    "chunk_b_text": chunk_map.get(chunk_b, (None,))[0],
+                    "chunk_a_collection": chunk_map.get(chunk_a, (None, None))[1],
+                    "chunk_b_collection": chunk_map.get(chunk_b, (None, None))[1],
+                    "detector": detector,
+                    "raw_score": raw_score,
+                    "calibrated_confidence": cal_conf,
+                    "calibration_state": cal_state,
+                    "direction": direction,
+                }
+            )
         return result
 
     def _staleness(self) -> list:
@@ -208,24 +203,33 @@ class ReportStage:
         superseded = self._load_superseded_ids()
 
         result = []
-        for chunk_id, collection, text, score, label, components_json, resolved_ts, cluster_id in rows:
-            result.append({
-                "chunk_id": chunk_id,
-                "collection": collection,
-                "text": text,
-                "staleness_score": score,
-                "staleness_label": label,
-                "staleness_components": json.loads(components_json) if components_json else None,
-                "resolved_timestamp": resolved_ts.isoformat() if resolved_ts else None,
-                "cluster_id": cluster_id,
-                "is_superseded": chunk_id in superseded,
-            })
+        for (
+            chunk_id,
+            collection,
+            text,
+            score,
+            label,
+            components_json,
+            resolved_ts,
+            cluster_id,
+        ) in rows:
+            result.append(
+                {
+                    "chunk_id": chunk_id,
+                    "collection": collection,
+                    "text": text,
+                    "staleness_score": score,
+                    "staleness_label": label,
+                    "staleness_components": json.loads(components_json) if components_json else None,
+                    "resolved_timestamp": resolved_ts.isoformat() if resolved_ts else None,
+                    "cluster_id": cluster_id,
+                    "is_superseded": chunk_id in superseded,
+                }
+            )
         return result
 
     def _load_superseded_ids(self) -> set:
-        rows = self.conn.execute(
-            "SELECT canonical_chunk_id, member_chunk_ids FROM dedup_groups"
-        ).fetchall()
+        rows = self.conn.execute("SELECT canonical_chunk_id, member_chunk_ids FROM dedup_groups").fetchall()
         superseded: set[str] = set()
         for canonical, members_json in rows:
             for member in json.loads(members_json):
