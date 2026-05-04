@@ -75,7 +75,7 @@ The scan pipeline runs in seven stages:
 └─────────────────────────────────────┘
 ```
 
-**Three contradiction detectors run in parallel** because each catches what the others miss:
+**Three contradiction detectors** because each catches what the others miss:
 - **NLI** (DeBERTa-v3 on MNLI) — semantic contradictions between claims
 - **Numeric** — `2.4%` vs `2.9%`, `$5` vs `$8`, conflicting rate limits or thresholds
 - **Version** — `package@1.2.3` vs `package@2.0.0` in similar context
@@ -91,7 +91,7 @@ The scan pipeline runs in seven stages:
 ### Requirements
 
 - Python 3.11+
-- GPU: NVIDIA ≥8GB VRAM (`device: cuda`) or Apple Silicon (`device: mps`) — **no CPU fallback**
+- GPU: NVIDIA ≥8GB VRAM (`device: cuda`) or Apple Silicon (`device: mps`)
 
 ### Install
 
@@ -162,28 +162,6 @@ uv run pytest --cov=pulse_scan --cov-report=term-missing
 
 ---
 
-## Hardware requirements
-
-| | Minimum | Recommended |
-|---|---|---|
-| GPU | NVIDIA T4 / RTX 3060 (8GB VRAM) or Apple M-series | A10, A100, M2 Pro+ |
-| RAM | 8GB | 16GB+ for >500k chunks |
-| Disk | ~11KB per chunk (5KB DuckDB + 6KB embeddings at 1536d float32) | SSD — memmap is latency-sensitive |
-
-At 1M chunks with 5 candidate pairs per chunk, NLI runs millions of inferences. GPU brings this from hours to minutes. No CPU fallback — the scanner exits at startup if no GPU is detected.
-
----
-
-## Scale
-
-| Corpus size | Scan time (T4) | Monthly cost (weekly scans, AWS spot) |
-|---|---|---|
-| 10k–50k chunks | 15–30 min | ~$6–7 |
-| 100k–500k chunks | 30–60 min | ~$8–10 |
-| 1M chunks | ~90 min | ~$15–20 |
-
----
-
 ## ⚠ PII warning
 
 The dashboard and JSON reports display chunk text in plain form. **Do not run pulse-scan on corpora containing PII or other sensitive content.** PII redaction is planned for v1.1.
@@ -213,3 +191,4 @@ All core stages are complete. The final step (AWS ECS deployment scripts) is in 
 ## Design document
 
 Full low-level design — pipeline math, data model, calibration algorithm, adapter protocol, AWS deployment architecture — in [`docs/lld-v1.pdf`](docs/lld-v1.pdf).
+- This is v1. Actual design is subject to change as the development proceeds, README will stay up-to-date.
