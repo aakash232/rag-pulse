@@ -212,3 +212,4 @@ All core stages are complete. The final step (AWS ECS deployment scripts) is in 
 ## Design document
 
 Full low-level design — pipeline math, data model, calibration algorithm, adapter protocol, AWS deployment architecture — in [`docs/lld-v1.pdf`](docs/lld-v1.pdf).
+- This is v1. Actual design is subject to change as the development proceeds, README will stay up-to-date.
