@@ -16,11 +16,11 @@
 
 ## The problem
 
-Vector stores own retrieval. Eval tools own output quality. **No tool owns corpus integrity.**
+Your RAG app answers from whatever chunks land in the top-k. If those chunks contradict each other, or one comes from a doc updated two years ago, the model synthesizes an answer anyway. No error, no flag.
 
-Chunks go stale. Documentation gets updated in one collection but not another. SDK versions diverge. The same fact appears in three chunks with three different answers. None of this is visible to your retrieval pipeline — it silently degrades the answers your RAG system gives, and existing tooling has no way to see it.
+Chunks go stale. The same fact appears in three chunks with three different answers. SDK versions drift between collections. None of this is visible to your retrieval pipeline.
 
-pulse-scan is the integrity layer.
+`pulse-scan` finds that drift. It reads your vector store, runs analysis, and produces a report. It writes nothing back.
 
 ---
 
@@ -37,11 +37,11 @@ pulse-scan is the integrity layer.
 
 ## Why this is new
 
-The math is borrowed — Grofsky 2025 time-decay for staleness, standard NLI for contradiction, HDBSCAN for clustering, conformal prediction for calibration. The **form factor is novel**: a vector-store-agnostic scanner that produces a corpus health report and a navigable dashboard.
+The math is inspired — Grofsky 2025 time-decay for staleness, standard NLI for contradiction, HDBSCAN for clustering, conformal prediction for calibration. The **form factor is novel**: a vector-store-agnostic scanner that produces a corpus health report and a navigable dashboard.
 
 The visual language for "what does corpus health look like" is unclaimed territory. pulse-scan treats it as a first-class deliverable, not an afterthought.
 
-It runs entirely on your infrastructure. No data leaves your environment. Cost is bounded and predictable (~$6–10/month for weekly scans of a 50k-chunk corpus on AWS spot).
+It runs entirely on your infrastructure. No data leaves your environment. 
 
 ---
 
@@ -75,7 +75,7 @@ The scan pipeline runs in seven stages:
 └─────────────────────────────────────┘
 ```
 
-**Three contradiction detectors run in parallel** because each catches what the others miss:
+**Three contradiction detectors** because each catches what the others miss:
 - **NLI** (DeBERTa-v3 on MNLI) — semantic contradictions between claims
 - **Numeric** — `2.4%` vs `2.9%`, `$5` vs `$8`, conflicting rate limits or thresholds
 - **Version** — `package@1.2.3` vs `package@2.0.0` in similar context
@@ -91,59 +91,57 @@ The scan pipeline runs in seven stages:
 ### Requirements
 
 - Python 3.11+
-- GPU: NVIDIA ≥8GB VRAM (`device: cuda`) or Apple Silicon (`device: mps`) — **no CPU fallback**
+- GPU: NVIDIA CUDA (8GB+ VRAM) or Apple Silicon MPS. The CLI exits at startup if neither is detected. Most pipeline stages run on CPU; NLI inference (Stage 5) is the bottleneck that needs the GPU. Bypass for dev: `PULSE_SKIP_GPU_CHECK=1`.
+- An OpenAI API key (ONLY for sample corpus embeddings)
 
 ### Install
 
 ```bash
-# Using uv (recommended)
-curl -LsSf https://astral.sh/uv/install.sh | sh
-uv sync --extra chroma
+uv sync --extra chroma   # or: pip install -e ".[chroma]"
 ```
 
+### Try it on the sample corpus
+
+The repo ships 10 synthetic documents built to surface every signal pulse-scan detects: contradictory auth policies, stale deployment guides, API version drift, and duplicate specs. No vector store to set up.
+
 ```bash
-# Using pip
-python -m venv .venv && source .venv/bin/activate
-pip install -e ".[chroma]"
-pip install -e ".[dev]"    # + test tooling
+echo "OPENAI_API_KEY=sk-..." > local_test/.env
+uv run python local_test/ingest.py
 ```
 
-### Configure
+Start ChromaDB in a separate terminal and keep it running:
 
 ```bash
-cp pulse.config.yaml.example pulse.config.yaml
+uv run chroma run --path local_test/chroma_data --port 8010
 ```
 
-Edit `pulse.config.yaml` — set your vector store connection, collections, and device:
-- See `pulse.config.yaml.example` for the full reference.
-
-### Run a scan
+Then scan and open the dashboard:
 
 ```bash
-uv run pulse scan --config pulse.config.yaml
-# or with venv activated: pulse scan --config pulse.config.yaml
-```
-
-### Open the dashboard
-
-```bash
-uv run pulse dashboard --config pulse.config.yaml
+uv run pulse scan --config local_test/pulse.config.yaml
+uv run pulse dashboard --config local_test/pulse.config.yaml
 # open http://localhost:8501
 ```
 
-The dashboard provides five views:
+See [`local_test/README.md`](local_test/README.md) for details on the sample documents and how to bring your own PDFs.
 
-- **Corpus map** — 2D UMAP scatter, points colored by staleness, sized by retrieval count. Click to drill in; drag to filter a region.
-- **Contradiction graph** — force-directed graph of contradiction edges. Edge thickness = confidence. Inline approve / reject / skip drives calibration.
-- **Findings table** — sortable, filterable chunk list. Default sort: staleness descending.
-- **Chunk drill-down** — full text, cosine neighbors, contradicting chunks, supersession candidates, first/last-seen timeline.
-- **Scan summary** — counts by category, corpus health time-series across scans, calibration state.
+### Connect to your own vector store
 
----
+```bash
+cp pulse.config.yaml.example pulse.config.yaml
+# edit: set your vector store connection, collections, and device
+uv run pulse scan --config pulse.config.yaml
+uv run pulse dashboard --config pulse.config.yaml
+```
 
-## Try it without a vector store
+See `pulse.config.yaml.example` for the full reference.
 
-`local_test/` is a self-contained sandbox. It ships with 10 synthetic PDFs designed to surface every signal pulse-scan detects: contradictory auth policies, stale deployment guides, API version drift, and duplicate specs. See [`local_test/README.md`](local_test/README.md) for setup (5 minutes, requires an OpenAI API key for embeddings).
+### Dashboard views
+
+- **Overview** - Key metrics (active chunks, % fresh, dedup groups, open contradictions), staleness distribution bar chart, collections breakdown, and contradiction review progress.
+- **Duplicates** - Paginated list of near-duplicate groups. Each group shows member chunks, how they were detected (text or embedding channel), and which is canonical.
+- **Contradictions** - Contradiction pairs shown side-by-side. Filter by detector (NLI, numeric, version) or review status. Inline verdict (confirm / false positive / skip) feeds threshold calibration on the next scan.
+- **Staleness** - Per-chunk staleness scores (0.0 to 1.0) with a four-component breakdown: age decay, semantic drift, contradiction evidence, and supersession evidence. Filter by label (fresh / aging / stale / abandoned).
 
 ---
 
@@ -162,31 +160,32 @@ uv run pytest --cov=pulse_scan --cov-report=term-missing
 
 ---
 
-## Hardware requirements
+## What it does not do yet
 
-| | Minimum | Recommended |
-|---|---|---|
-| GPU | NVIDIA T4 / RTX 3060 (8GB VRAM) or Apple M-series | A10, A100, M2 Pro+ |
-| RAM | 8GB | 16GB+ for >500k chunks |
-| Disk | ~11KB per chunk (5KB DuckDB + 6KB embeddings at 1536d float32) | SSD — memmap is latency-sensitive |
-
-At 1M chunks with 5 candidate pairs per chunk, NLI runs millions of inferences. GPU brings this from hours to minutes. No CPU fallback — the scanner exits at startup if no GPU is detected.
+- **Chroma only.** Pinecone, Weaviate, Qdrant, and pgvector adapters are planned but not built for v1.
+- **NLI inference needs a GPU.** Most stages run on CPU. Stage 5 (DeBERTa NLI) is the bottleneck; the CLI exits at startup if neither CUDA nor Apple Silicon MPS is available. For dev/testing without a GPU, set `PULSE_SKIP_GPU_CHECK=1` — NLI will fall back to CPU, which is workable for small corpora.
+- **No PII handling.** The dashboard and reports display chunk text as plain text. Do not run this on corpora containing personal data. Redaction is planned for v1.1.
+- **Not production-ready.** No auth layer, no multi-user support, no access control.
+- **AWS deployment pending.** ECS deployment scripts are the one remaining incomplete item.
 
 ---
 
-## Scale
+## FAQ
 
-| Corpus size | Scan time (T4) | Monthly cost (weekly scans, AWS spot) |
-|---|---|---|
-| 10k–50k chunks | 15–30 min | ~$6–7 |
-| 100k–500k chunks | 30–60 min | ~$8–10 |
-| 1M chunks | ~90 min | ~$15–20 |
+**Why not LangChain, Langfuse, or DeepEval?**
+Those tools measure output quality: whether the answer your app produced was correct or useful. pulse-scan measures corpus quality: whether the raw material your retriever pulls from is internally consistent and current. They operate at different layers and can run alongside each other.
 
----
+**Does this work with Pinecone, Weaviate, or Qdrant?**
+Not in v1. Chroma is the only supported vector store right now. The adapter protocol is documented in the LLD if you want to add one.
 
-## ⚠ PII warning
+**Does my data leave my infrastructure?**
+No. The scanner runs on your hardware. The only external call is to whichever embedding model you configure, the same call your existing RAG pipeline already makes. No telemetry, no callbacks.
 
-The dashboard and JSON reports display chunk text in plain form. **Do not run pulse-scan on corpora containing PII or other sensitive content.** PII redaction is planned for v1.1.
+**How is this different from an eval suite?**
+An eval suite runs queries against your app and scores the answers. pulse-scan never runs a query. It analyzes the chunks themselves: are they stale, do any two chunks contradict each other, does the same fact appear three ways? Different question, different tool.
+
+**Is this production-ready?**
+No. The core pipeline is complete and tested. There is no auth layer, multi-tenancy, or hardened deployment. Treat it as a developer inspection tool for now.
 
 ---
 
